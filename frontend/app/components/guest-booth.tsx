@@ -30,6 +30,7 @@ function formatBytes(bytes: number) {
 
 export function GuestBooth({
   guestPath,
+  dashboardPath,
   eventSlug,
   maxVideoSeconds = 10,
   title,
@@ -59,59 +60,67 @@ export function GuestBooth({
     null,
   );
   const [publishedItems, setPublishedItems] = useState<PublishedItem[]>([]);
-  const [isLoadingRecent, setIsLoadingRecent] = useState(() => Boolean(eventSlug));
+  const [isLoadingRecent, setIsLoadingRecent] = useState(() =>
+    Boolean(eventSlug),
+  );
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
 
-  const canRecordVideo = useMemo(() => typeof MediaRecorder !== "undefined", []);
+  const canRecordVideo = useMemo(
+    () => typeof MediaRecorder !== "undefined",
+    [],
+  );
 
-  const loadRecentPublished = useCallback(async (showLoading = true) => {
-    if (!eventSlug) return;
+  const loadRecentPublished = useCallback(
+    async (showLoading = true) => {
+      if (!eventSlug) return;
 
-    if (showLoading) {
-      setIsLoadingRecent(true);
-    }
-
-    try {
-      const response = await fetch(
-        `/api/guest-submissions?eventSlug=${encodeURIComponent(eventSlug)}`,
-        { method: "GET", cache: "no-store" },
-      );
-
-      const result = (await response.json()) as {
-        ok: boolean;
-        error?: string;
-        recent?: Array<{
-          _id: string;
-          _createdAt: string;
-          mediaKind?: "image" | "video";
-          status?: string;
-          image?: { asset?: { url?: string } };
-          video?: { asset?: { url?: string } };
-        }>;
-      };
-
-      if (!response.ok || !result.ok) {
-        throw new Error(result.error ?? "Failed to load recent submissions.");
+      if (showLoading) {
+        setIsLoadingRecent(true);
       }
 
-      const items = (result.recent ?? [])
-        .map((entry) => ({
-          id: entry._id,
-          kind: entry.mediaKind === "video" ? "video" : "photo",
-          url: entry.video?.asset?.url ?? entry.image?.asset?.url ?? "",
-          createdAt: entry._createdAt,
-          status: entry.status ?? "pending",
-        }))
-        .filter((entry) => Boolean(entry.url));
+      try {
+        const response = await fetch(
+          `/api/guest-submissions?eventSlug=${encodeURIComponent(eventSlug)}`,
+          { method: "GET", cache: "no-store" },
+        );
 
-      setPublishedItems(items);
-    } catch {
-      setPublishedItems([]);
-    } finally {
-      setIsLoadingRecent(false);
-    }
-  }, [eventSlug]);
+        const result = (await response.json()) as {
+          ok: boolean;
+          error?: string;
+          recent?: Array<{
+            _id: string;
+            _createdAt: string;
+            mediaKind?: "image" | "video";
+            status?: string;
+            image?: { asset?: { url?: string } };
+            video?: { asset?: { url?: string } };
+          }>;
+        };
+
+        if (!response.ok || !result.ok) {
+          throw new Error(result.error ?? "Failed to load recent submissions.");
+        }
+
+        const items: PublishedItem[] = (result.recent ?? [])
+          .map<PublishedItem>((entry) => ({
+            id: entry._id,
+            kind: entry.mediaKind === "video" ? "video" : "photo",
+            url: entry.video?.asset?.url ?? entry.image?.asset?.url ?? "",
+            createdAt: entry._createdAt,
+            status: entry.status ?? "pending",
+          }))
+          .filter((entry) => Boolean(entry.url));
+
+        setPublishedItems(items);
+      } catch {
+        setPublishedItems([]);
+      } finally {
+        setIsLoadingRecent(false);
+      }
+    },
+    [eventSlug],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -142,8 +151,8 @@ export function GuestBooth({
           throw new Error(result.error ?? "Failed to load recent submissions.");
         }
 
-        const items = (result.recent ?? [])
-          .map((entry) => ({
+        const items: PublishedItem[] = (result.recent ?? [])
+          .map<PublishedItem>((entry) => ({
             id: entry._id,
             kind: entry.mediaKind === "video" ? "video" : "photo",
             url: entry.video?.asset?.url ?? entry.image?.asset?.url ?? "",
