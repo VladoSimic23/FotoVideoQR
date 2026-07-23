@@ -1,0 +1,42 @@
+# Monorepo root ignores for frontend + Sanity studio
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Node dependencies
+**/node_modules/
+
+# Build outputs
+**/.next/
+**/out/
+**/build/
+**/dist/
+**/.turbo/
+
+# Sanity runtime
+**/.sanity/
+
+# Coverage
+**/coverage/
+
+# Env files (commit only explicit examples)
+**/.env
+**/.env.*
+!**/.env.local.example
+!**/.env.example
+
+# TypeScript
+**/*.tsbuildinfo
+
+# Optional deployment folders
+**/.vercel/
