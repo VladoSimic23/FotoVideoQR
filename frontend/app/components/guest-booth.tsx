@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type CaptureMode = "photo" | "video";
+type CameraFacing = "user" | "environment";
 
 type CapturedMedia = {
   kind: CaptureMode;
@@ -50,6 +51,7 @@ export function GuestBooth({
   );
 
   const [mode, setMode] = useState<CaptureMode>("photo");
+  const [cameraFacing, setCameraFacing] = useState<CameraFacing>("user");
   const [streamReady, setStreamReady] = useState(false);
   const [captureLabel, setCaptureLabel] = useState("Ready to capture");
   const [isRecording, setIsRecording] = useState(false);
@@ -87,7 +89,9 @@ export function GuestBooth({
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: mode === "video",
-          video: true,
+          video: {
+            facingMode: { ideal: cameraFacing },
+          },
         });
 
         if (cancelled) {
@@ -97,7 +101,9 @@ export function GuestBooth({
 
         streamRef.current = stream;
         setStreamReady(true);
-        setCaptureLabel("Camera ready");
+        setCaptureLabel(
+          `Camera ready (${cameraFacing === "user" ? "front" : "back"})`,
+        );
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -115,7 +121,7 @@ export function GuestBooth({
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
-  }, [mode]);
+  }, [mode, cameraFacing]);
 
   useEffect(() => {
     if (!isRecording) return;
@@ -349,6 +355,22 @@ export function GuestBooth({
                   className={`rounded-full px-4 py-2 text-sm font-medium transition ${mode === value ? "bg-white text-slate-950" : "border border-white/10 bg-white/5 text-white hover:bg-white/10"}`}
                 >
                   {value === "photo" ? "Photo" : "Video"}
+                </button>
+              ))}
+              {(
+                [
+                  { value: "user", label: "Front camera" },
+                  { value: "environment", label: "Back camera" },
+                ] as const
+              ).map((camera) => (
+                <button
+                  key={camera.value}
+                  type="button"
+                  onClick={() => setCameraFacing(camera.value)}
+                  disabled={isRecording || isPublishing}
+                  className={`rounded-full px-4 py-2 text-sm font-medium transition ${cameraFacing === camera.value ? "bg-cyan-300 text-slate-950" : "border border-white/10 bg-white/5 text-white hover:bg-white/10"} disabled:opacity-50`}
+                >
+                  {camera.label}
                 </button>
               ))}
             </div>
