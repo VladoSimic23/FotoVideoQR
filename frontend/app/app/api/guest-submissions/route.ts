@@ -16,8 +16,76 @@ const writeClient = createClient({
   useCdn: false,
 });
 
+const readClient = createClient({
+  projectId,
+  dataset,
+  apiVersion,
+  useCdn: false,
+});
+
 function isInvalidSlug(value: string | null) {
   return !value || value === "undefined" || value === "null";
+}
+
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const slugParam = url.searchParams.get("eventSlug");
+    const eventSlug = typeof slugParam === "string" ? slugParam.trim() : null;
+
+    if (isInvalidSlug(eventSlug)) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid wedding slug." },
+        { status: 400 },
+      );
+    }
+
+    const weddingEvent = await readClient.fetch<{ _id: string } | null>(
+      `*[_type == "weddingEvent" && (slug.current == $slug || dashboardSlug.current == $slug)][0]{_id}`,
+      { slug: eventSlug },
+    );
+
+    if (!weddingEvent?._id) {
+      return NextResponse.json(
+        { ok: false, error: "Wedding event not found." },
+        { status: 404 },
+      );
+    }
+
+    const recent = await readClient.fetch<
+      Array<{
+        _id: string;
+        _createdAt: string;
+        mediaKind?: "image" | "video";
+        status?: string;
+        image?: { asset?: { url?: string } };
+        video?: { asset?: { url?: string } };
+      }>
+    >(
+      `*[_type == "mediaSubmission" && weddingEvent._ref == $eventId && status in ["pending", "approved", "published"]] | order(_createdAt desc)[0...8]{
+        _id,
+        _createdAt,
+        mediaKind,
+        status,
+        "image": image{asset->{url}},
+        "video": video{asset->{url}}
+      }`,
+      { eventId: weddingEvent._id },
+    );
+
+    return NextResponse.json({ ok: true, recent });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to load recent submissions.",
+      },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(request: Request) {

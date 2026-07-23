@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type CaptureMode = "photo" | "video";
 type CameraFacing = "user" | "environment";
@@ -20,6 +20,8 @@ type PublishedItem = {
   status: string;
 };
 
+const RECENT_REFRESH_MS = 15000;
+
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -28,7 +30,6 @@ function formatBytes(bytes: number) {
 
 export function GuestBooth({
   guestPath,
-  dashboardPath,
   eventSlug,
   maxVideoSeconds = 10,
   title,
@@ -45,10 +46,6 @@ export function GuestBooth({
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
-  const storageKey = useMemo(
-    () => `wedding-published-items:${eventSlug || "default"}`,
-    [eventSlug],
-  );
 
   const [mode, setMode] = useState<CaptureMode>("photo");
   const [cameraFacing, setCameraFacing] = useState<CameraFacing>("user");
@@ -61,25 +58,134 @@ export function GuestBooth({
   const [capturedMedia, setCapturedMedia] = useState<CapturedMedia | null>(
     null,
   );
-  const [publishedItems, setPublishedItems] = useState<PublishedItem[]>(() => {
-    if (typeof window === "undefined") {
-      return [];
-    }
-
-    try {
-      const existing = window.localStorage.getItem(storageKey);
-      return existing ? (JSON.parse(existing) as PublishedItem[]) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [publishedItems, setPublishedItems] = useState<PublishedItem[]>([]);
+  const [isLoadingRecent, setIsLoadingRecent] = useState(() => Boolean(eventSlug));
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
 
-  const canRecordVideo = useMemo(
-    () => typeof MediaRecorder !== "undefined",
-    [],
-  );
+  const canRecordVideo = useMemo(() => typeof MediaRecorder !== "undefined", []);
+
+  const loadRecentPublished = useCallback(async (showLoading = true) => {
+    if (!eventSlug) return;
+
+    if (showLoading) {
+      setIsLoadingRecent(true);
+    }
+
+    try {
+      const response = await fetch(
+        `/api/guest-submissions?eventSlug=${encodeURIComponent(eventSlug)}`,
+        { method: "GET", cache: "no-store" },
+      );
+
+      const result = (await response.json()) as {
+        ok: boolean;
+        error?: string;
+        recent?: Array<{
+          _id: string;
+          _createdAt: string;
+          mediaKind?: "image" | "video";
+          status?: string;
+          image?: { asset?: { url?: string } };
+          video?: { asset?: { url?: string } };
+        }>;
+      };
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error ?? "Failed to load recent submissions.");
+      }
+
+      const items = (result.recent ?? [])
+        .map((entry) => ({
+          id: entry._id,
+          kind: entry.mediaKind === "video" ? "video" : "photo",
+          url: entry.video?.asset?.url ?? entry.image?.asset?.url ?? "",
+          createdAt: entry._createdAt,
+          status: entry.status ?? "pending",
+        }))
+        .filter((entry) => Boolean(entry.url));
+
+      setPublishedItems(items);
+    } catch {
+      setPublishedItems([]);
+    } finally {
+      setIsLoadingRecent(false);
+    }
+  }, [eventSlug]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!eventSlug) return;
+
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/guest-submissions?eventSlug=${encodeURIComponent(eventSlug)}`,
+          { method: "GET", cache: "no-store" },
+        );
+
+        const result = (await response.json()) as {
+          ok: boolean;
+          error?: string;
+          recent?: Array<{
+            _id: string;
+            _createdAt: string;
+            mediaKind?: "image" | "video";
+            status?: string;
+            image?: { asset?: { url?: string } };
+            video?: { asset?: { url?: string } };
+          }>;
+        };
+
+        if (!response.ok || !result.ok) {
+          throw new Error(result.error ?? "Failed to load recent submissions.");
+        }
+
+        const items = (result.recent ?? [])
+          .map((entry) => ({
+            id: entry._id,
+            kind: entry.mediaKind === "video" ? "video" : "photo",
+            url: entry.video?.asset?.url ?? entry.image?.asset?.url ?? "",
+            createdAt: entry._createdAt,
+            status: entry.status ?? "pending",
+          }))
+          .filter((entry) => Boolean(entry.url));
+
+        if (!cancelled) {
+          setPublishedItems(items);
+        }
+      } catch {
+        if (!cancelled) {
+          setPublishedItems([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingRecent(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [eventSlug]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !eventSlug) return;
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      void loadRecentPublished(false);
+    }, RECENT_REFRESH_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [eventSlug, loadRecentPublished]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -276,11 +382,8 @@ export function GuestBooth({
         status: result.status ?? "pending",
       };
 
-      setPublishedItems((current) => {
-        const nextItems = [nextItem, ...current].slice(0, 8);
-        window.localStorage.setItem(storageKey, JSON.stringify(nextItems));
-        return nextItems;
-      });
+      setPublishedItems((current) => [nextItem, ...current].slice(0, 8));
+      void loadRecentPublished(false);
 
       setCaptureLabel("Published to wedding gallery queue");
       setCapturedMedia((current) => {
@@ -548,6 +651,10 @@ export function GuestBooth({
                     </div>
                   </article>
                 ))
+              ) : isLoadingRecent ? (
+                <div className="rounded-[1.5rem] border border-dashed border-white/15 bg-white/5 px-6 py-12 text-center text-sm leading-7 text-slate-300">
+                  Loading shared event feed...
+                </div>
               ) : (
                 <div className="rounded-[1.5rem] border border-dashed border-white/15 bg-white/5 px-6 py-12 text-center text-sm leading-7 text-slate-300">
                   After publish, entries are sent to Sanity and show status in
