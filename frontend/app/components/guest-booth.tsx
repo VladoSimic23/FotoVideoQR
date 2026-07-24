@@ -11,14 +11,12 @@ type CapturedMedia = {
   previewUrl: string;
   file: File;
   durationSeconds?: number;
-  needsRotationFix?: boolean;
 };
 
 type PublishedItem = {
   id: string;
   kind: CaptureMode;
   url: string;
-  needsRotationFix?: boolean;
 };
 
 const RECENT_REFRESH_MS = 15000;
@@ -60,6 +58,7 @@ export function GuestBooth({
   );
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [isCameraFullscreen, setIsCameraFullscreen] = useState(false);
   const [activeViewerIndex, setActiveViewerIndex] = useState<number | null>(
     null,
   );
@@ -287,6 +286,12 @@ export function GuestBooth({
   }, [isRecording, maxVideoSeconds]);
 
   useEffect(() => {
+    if (videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [isCameraFullscreen]);
+
+  useEffect(() => {
     return () => {
       if (capturedMedia?.previewUrl) {
         URL.revokeObjectURL(capturedMedia.previewUrl);
@@ -297,7 +302,6 @@ export function GuestBooth({
   async function capturePhoto() {
     const video = videoRef.current;
     if (!video) return;
-    const shouldMirrorFrontAtCapture = cameraFacing === "user";
 
     const canvas = document.createElement("canvas");
     canvas.width = video.videoWidth || 1280;
@@ -305,10 +309,6 @@ export function GuestBooth({
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    if (shouldMirrorFrontAtCapture) {
-      context.translate(canvas.width, 0);
-      context.scale(-1, 1);
-    }
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     const blob = await new Promise<Blob | null>((resolve) =>
@@ -327,7 +327,6 @@ export function GuestBooth({
         kind: "photo",
         file,
         previewUrl,
-        needsRotationFix: false,
       };
     });
 
@@ -338,7 +337,6 @@ export function GuestBooth({
   async function startRecording() {
     const stream = streamRef.current;
     if (!stream || !canRecordVideo) return;
-    const shouldMirrorFrontForThisRecording = cameraFacing === "user";
 
     chunksRef.current = [];
     const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
@@ -364,7 +362,6 @@ export function GuestBooth({
           file,
           previewUrl,
           durationSeconds: recordingSeconds || undefined,
-          needsRotationFix: shouldMirrorFrontForThisRecording,
         };
       });
 
@@ -429,7 +426,6 @@ export function GuestBooth({
         id: result.submissionId ?? `${Date.now()}`,
         kind: capturedMedia.kind,
         url: result.assetUrl ?? capturedMedia.previewUrl,
-        needsRotationFix: capturedMedia.needsRotationFix,
       };
 
       setPublishedItems((current) => [nextItem, ...current].slice(0, 8));
@@ -507,6 +503,20 @@ export function GuestBooth({
     touchStartXRef.current = null;
   }
 
+  function handlePrimaryCaptureAction() {
+    if (mode === "photo") {
+      void capturePhoto();
+      return;
+    }
+
+    if (isRecording) {
+      void stopRecording();
+      return;
+    }
+
+    void startRecording();
+  }
+
   return (
     <main className="min-h-screen bg-[#07111f] text-slate-50">
       <p className="sr-only" aria-live="polite">
@@ -530,6 +540,14 @@ export function GuestBooth({
                 delete it, or publish it to the couple gallery.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setIsCameraFullscreen(true)}
+              className="inline-flex items-center gap-2 self-start rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+            >
+              <CameraIcon />
+              Open camera
+            </button>
             {/* <div className="flex flex-wrap gap-3 text-sm">
               <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2">
                 {captureLabel}
@@ -573,23 +591,36 @@ export function GuestBooth({
                   {camera.label}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => setIsCameraFullscreen(true)}
+                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10"
+              >
+                Full screen camera
+              </button>
             </div>
 
             <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_0.8fr]">
               <div className="space-y-4">
                 <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-slate-950/80">
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    style={{
-                      transform: shouldMirrorFrontCamera
-                        ? "rotateY(-180deg)"
-                        : "none",
-                    }}
-                    className={`h-[420px] w-full object-cover ${capturedMedia ? "opacity-25" : "opacity-100"}`}
-                  />
+                  {isCameraFullscreen ? (
+                    <div className="flex h-[420px] w-full items-center justify-center bg-slate-900/80 text-sm text-slate-300">
+                      Camera is open in full-screen mode.
+                    </div>
+                  ) : (
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      style={{
+                        transform: shouldMirrorFrontCamera
+                          ? "rotateY(-180deg)"
+                          : "none",
+                      }}
+                      className={`h-[420px] w-full object-cover ${capturedMedia ? "opacity-25" : "opacity-100"}`}
+                    />
+                  )}
                   {capturedMedia && (
                     <div className="absolute inset-0 flex items-center justify-center p-4">
                       {capturedMedia.kind === "video" ? (
@@ -597,11 +628,6 @@ export function GuestBooth({
                           src={capturedMedia.previewUrl}
                           controls
                           playsInline
-                          style={{
-                            transform: capturedMedia.needsRotationFix
-                              ? "rotateY(-180deg)"
-                              : "none",
-                          }}
                           className="max-h-[420px] w-full rounded-[1.25rem] object-cover shadow-2xl"
                         />
                       ) : (
@@ -730,11 +756,6 @@ export function GuestBooth({
                           muted
                           playsInline
                           preload="metadata"
-                          style={{
-                            transform: item.needsRotationFix
-                              ? "rotateY(-180deg)"
-                              : "none",
-                          }}
                           className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
                         />
                       ) : (
@@ -767,6 +788,103 @@ export function GuestBooth({
           </section>
         </div>
       </section>
+
+      {isCameraFullscreen && (
+        <div
+          className="fixed inset-0 z-40 bg-black"
+          role="dialog"
+          aria-modal="true"
+        >
+          <video
+            ref={videoRef}
+            autoPlay
+            muted
+            playsInline
+            style={{
+              transform: shouldMirrorFrontCamera ? "rotateY(-180deg)" : "none",
+            }}
+            className="h-full w-full object-cover"
+          />
+
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/75 to-transparent" />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black/85 to-transparent" />
+
+          <button
+            type="button"
+            onClick={() => setIsCameraFullscreen(false)}
+            className="absolute right-4 top-4 rounded-full border border-white/25 bg-black/40 p-2 text-white"
+            aria-label="Close full screen camera"
+          >
+            <CloseIcon />
+          </button>
+
+          <div className="absolute inset-x-0 bottom-0 z-10 px-4 pb-8 pt-6">
+            <div className="mx-auto flex max-w-md items-center justify-center gap-3 rounded-full border border-white/20 bg-black/45 p-1.5 backdrop-blur">
+              {(["photo", "video"] as const).map((value) => (
+                <button
+                  key={`full-${value}`}
+                  type="button"
+                  onClick={() => setMode(value)}
+                  className={`rounded-full px-5 py-2 text-sm font-medium transition ${mode === value ? "bg-white text-slate-950" : "text-white/85 hover:bg-white/15"}`}
+                >
+                  {value === "photo" ? "Photo" : "Video"}
+                </button>
+              ))}
+            </div>
+
+            <div className="mx-auto mt-5 flex max-w-md items-center justify-between">
+              <button
+                type="button"
+                onClick={() =>
+                  setCameraFacing((current) =>
+                    current === "user" ? "environment" : "user",
+                  )
+                }
+                disabled={isRecording || isPublishing}
+                className="rounded-full border border-white/25 bg-black/40 p-3 text-white disabled:opacity-50"
+                aria-label="Switch camera"
+              >
+                <SwitchCameraIcon />
+              </button>
+
+              <button
+                type="button"
+                onClick={handlePrimaryCaptureAction}
+                disabled={
+                  !streamReady ||
+                  isPublishing ||
+                  (mode === "video" && !canRecordVideo)
+                }
+                className={`h-20 w-20 rounded-full border-4 border-white bg-white/95 transition disabled:opacity-50 ${isRecording ? "scale-95 bg-rose-400" : "hover:scale-[1.03]"}`}
+                aria-label={
+                  mode === "photo"
+                    ? "Capture photo"
+                    : isRecording
+                      ? "Stop recording"
+                      : "Start recording"
+                }
+              >
+                <span className="sr-only">
+                  {mode === "photo"
+                    ? "Capture photo"
+                    : isRecording
+                      ? "Stop recording"
+                      : "Start recording"}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsCameraFullscreen(false)}
+                className="rounded-full border border-white/25 bg-black/40 p-3 text-white"
+                aria-label="Close camera"
+              >
+                <GalleryIcon />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeViewerItem && (
         <div
@@ -805,11 +923,6 @@ export function GuestBooth({
                 src={activeViewerItem.url}
                 controls
                 playsInline
-                style={{
-                  transform: activeViewerItem.needsRotationFix
-                    ? "rotateY(-180deg)"
-                    : "none",
-                }}
                 className="max-h-[82vh] w-full bg-black object-contain"
               />
             ) : (
@@ -890,6 +1003,39 @@ function CloseIcon() {
       <path
         fill="currentColor"
         d="M6.72 6.72a.75.75 0 0 1 1.06 0L12 10.94l4.22-4.22a.75.75 0 1 1 1.06 1.06L13.06 12l4.22 4.22a.75.75 0 1 1-1.06 1.06L12 13.06l-4.22 4.22a.75.75 0 1 1-1.06-1.06L10.94 12 6.72 7.78a.75.75 0 0 1 0-1.06"
+      />
+    </svg>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M9 5a2 2 0 0 1 1.6-.8h2.8A2 2 0 0 1 15 5l.6 1H18a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V9a3 3 0 0 1 3-3h2.4zm3 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8"
+      />
+    </svg>
+  );
+}
+
+function SwitchCameraIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M9 4a2 2 0 0 0-1.6.8L6.8 6H6a3 3 0 0 0-3 3v6a3 3 0 0 0 3 3h.8l.6 1.2A2 2 0 0 0 9 20h6a2 2 0 0 0 1.6-.8l.6-1.2h.8a3 3 0 0 0 3-3V9a3 3 0 0 0-3-3h-.8l-.6-1.2A2 2 0 0 0 15 4zm5.53 6.47a.75.75 0 0 1 1.06 0l1.5 1.5a.75.75 0 0 1 0 1.06l-1.5 1.5a.75.75 0 1 1-1.06-1.06l.22-.22H9.25a.75.75 0 0 1 0-1.5h5.5l-.22-.22a.75.75 0 0 1 0-1.06m-6.12 3a.75.75 0 0 1 1.06 0 .75.75 0 0 1 0 1.06l-.22.22h5.5a.75.75 0 0 1 0 1.5h-5.5l.22.22a.75.75 0 0 1-1.06 1.06l-1.5-1.5a.75.75 0 0 1 0-1.06z"
+      />
+    </svg>
+  );
+}
+
+function GalleryIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5zm2.5-.5a.5.5 0 0 0-.5.5v7.38l2.6-2.6a1.4 1.4 0 0 1 1.98 0l1.2 1.2 2.6-2.59a1.4 1.4 0 0 1 1.98 0L18 9.58V5.5a.5.5 0 0 0-.5-.5z"
       />
     </svg>
   );
