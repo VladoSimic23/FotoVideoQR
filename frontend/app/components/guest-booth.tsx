@@ -60,7 +60,6 @@ export function GuestBooth({
   );
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
-  const [frontRotationEnabled, setFrontRotationEnabled] = useState(true);
   const [activeViewerIndex, setActiveViewerIndex] = useState<number | null>(
     null,
   );
@@ -71,10 +70,7 @@ export function GuestBooth({
     [],
   );
 
-  const shouldRotateFrontCamera = useMemo(() => {
-    if (cameraFacing !== "user") return false;
-    return frontRotationEnabled;
-  }, [cameraFacing, frontRotationEnabled]);
+  const shouldMirrorFrontCamera = cameraFacing === "user";
 
   const loadRecentPublished = useCallback(
     async (showLoading = true) => {
@@ -301,8 +297,7 @@ export function GuestBooth({
   async function capturePhoto() {
     const video = videoRef.current;
     if (!video) return;
-    const shouldRotateFrontAtCapture =
-      cameraFacing === "user" && frontRotationEnabled;
+    const shouldMirrorFrontAtCapture = cameraFacing === "user";
 
     const canvas = document.createElement("canvas");
     canvas.width = video.videoWidth || 1280;
@@ -310,7 +305,7 @@ export function GuestBooth({
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    if (shouldRotateFrontAtCapture) {
+    if (shouldMirrorFrontAtCapture) {
       context.translate(canvas.width, 0);
       context.scale(-1, 1);
     }
@@ -343,8 +338,7 @@ export function GuestBooth({
   async function startRecording() {
     const stream = streamRef.current;
     if (!stream || !canRecordVideo) return;
-    const shouldRotateFrontForThisRecording =
-      cameraFacing === "user" && frontRotationEnabled;
+    const shouldMirrorFrontForThisRecording = cameraFacing === "user";
 
     chunksRef.current = [];
     const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
@@ -370,7 +364,7 @@ export function GuestBooth({
           file,
           previewUrl,
           durationSeconds: recordingSeconds || undefined,
-          needsRotationFix: shouldRotateFrontForThisRecording,
+          needsRotationFix: shouldMirrorFrontForThisRecording,
         };
       });
 
@@ -579,16 +573,6 @@ export function GuestBooth({
                   {camera.label}
                 </button>
               ))}
-              {cameraFacing === "user" && (
-                <button
-                  type="button"
-                  onClick={() => setFrontRotationEnabled((current) => !current)}
-                  disabled={isRecording || isPublishing}
-                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10 disabled:opacity-50"
-                >
-                  Front correction: {frontRotationEnabled ? "on" : "off"}
-                </button>
-              )}
             </div>
 
             <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_0.8fr]">
@@ -600,7 +584,7 @@ export function GuestBooth({
                     muted
                     playsInline
                     style={{
-                      transform: shouldRotateFrontCamera
+                      transform: shouldMirrorFrontCamera
                         ? "rotateY(-180deg)"
                         : "none",
                     }}
