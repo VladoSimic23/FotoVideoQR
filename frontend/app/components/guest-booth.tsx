@@ -231,8 +231,12 @@ export function GuestBooth({
     window.addEventListener("orientationchange", updateOrientation);
     window.visualViewport?.addEventListener("resize", updateOrientation);
     window.screen?.orientation?.addEventListener("change", updateOrientation);
+    document.addEventListener("visibilitychange", updateOrientation);
+
+    const pollId = window.setInterval(updateOrientation, 500);
 
     return () => {
+      window.clearInterval(pollId);
       window.removeEventListener("resize", updateOrientation);
       window.removeEventListener("orientationchange", updateOrientation);
       window.visualViewport?.removeEventListener("resize", updateOrientation);
@@ -240,6 +244,7 @@ export function GuestBooth({
         "change",
         updateOrientation,
       );
+      document.removeEventListener("visibilitychange", updateOrientation);
     };
   }, []);
 
@@ -347,6 +352,8 @@ export function GuestBooth({
   async function capturePhoto() {
     const video = videoRef.current;
     if (!video) return;
+    const shouldRotateFrontAtCapture =
+      cameraFacing === "user" && detectLandscapeOrientation();
 
     const canvas = document.createElement("canvas");
     canvas.width = video.videoWidth || 1280;
@@ -354,7 +361,7 @@ export function GuestBooth({
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    if (shouldApplyFrontLandscapeFix) {
+    if (shouldRotateFrontAtCapture) {
       context.translate(canvas.width, canvas.height);
       context.rotate(Math.PI);
     }
@@ -387,6 +394,8 @@ export function GuestBooth({
   async function startRecording() {
     const stream = streamRef.current;
     if (!stream || !canRecordVideo) return;
+    const shouldRotateFrontForThisRecording =
+      cameraFacing === "user" && detectLandscapeOrientation();
 
     chunksRef.current = [];
     const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
@@ -412,7 +421,7 @@ export function GuestBooth({
           file,
           previewUrl,
           durationSeconds: recordingSeconds || undefined,
-          needsRotationFix: shouldApplyFrontLandscapeFix,
+          needsRotationFix: shouldRotateFrontForThisRecording,
         };
       });
 
