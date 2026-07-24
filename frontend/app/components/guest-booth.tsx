@@ -23,6 +23,32 @@ type PublishedItem = {
 
 const RECENT_REFRESH_MS = 15000;
 
+function detectLandscapeOrientation() {
+  if (typeof window === "undefined") return false;
+
+  const orientation = window.screen?.orientation;
+  if (orientation && typeof orientation.angle === "number") {
+    if (Math.abs(orientation.angle) === 90) {
+      return true;
+    }
+  }
+
+  const legacyOrientation = (window as Window & { orientation?: number })
+    .orientation;
+  if (typeof legacyOrientation === "number") {
+    if (Math.abs(legacyOrientation) === 90) {
+      return true;
+    }
+  }
+
+  const viewport = window.visualViewport;
+  if (viewport) {
+    return viewport.width > viewport.height;
+  }
+
+  return window.innerWidth > window.innerHeight;
+}
+
 export function GuestBooth({
   guestPath,
   dashboardPath,
@@ -197,16 +223,23 @@ export function GuestBooth({
     if (typeof window === "undefined") return;
 
     const updateOrientation = () => {
-      setIsLandscape(window.matchMedia("(orientation: landscape)").matches);
+      setIsLandscape(detectLandscapeOrientation());
     };
 
     updateOrientation();
     window.addEventListener("resize", updateOrientation);
     window.addEventListener("orientationchange", updateOrientation);
+    window.visualViewport?.addEventListener("resize", updateOrientation);
+    window.screen?.orientation?.addEventListener("change", updateOrientation);
 
     return () => {
       window.removeEventListener("resize", updateOrientation);
       window.removeEventListener("orientationchange", updateOrientation);
+      window.visualViewport?.removeEventListener("resize", updateOrientation);
+      window.screen?.orientation?.removeEventListener(
+        "change",
+        updateOrientation,
+      );
     };
   }, []);
 
@@ -598,7 +631,12 @@ export function GuestBooth({
                     autoPlay
                     muted
                     playsInline
-                    className={`h-[420px] w-full object-cover ${capturedMedia ? "opacity-25" : "opacity-100"} ${shouldApplyFrontLandscapeFix ? "rotate-180" : ""}`}
+                    style={{
+                      transform: shouldApplyFrontLandscapeFix
+                        ? "rotate(180deg)"
+                        : "none",
+                    }}
+                    className={`h-[420px] w-full object-cover ${capturedMedia ? "opacity-25" : "opacity-100"}`}
                   />
                   {capturedMedia && (
                     <div className="absolute inset-0 flex items-center justify-center p-4">
@@ -607,7 +645,12 @@ export function GuestBooth({
                           src={capturedMedia.previewUrl}
                           controls
                           playsInline
-                          className={`max-h-[420px] w-full rounded-[1.25rem] object-cover shadow-2xl ${capturedMedia.needsRotationFix ? "rotate-180" : ""}`}
+                          style={{
+                            transform: capturedMedia.needsRotationFix
+                              ? "rotate(180deg)"
+                              : "none",
+                          }}
+                          className="max-h-[420px] w-full rounded-[1.25rem] object-cover shadow-2xl"
                         />
                       ) : (
                         <Image
@@ -735,7 +778,12 @@ export function GuestBooth({
                           muted
                           playsInline
                           preload="metadata"
-                          className={`h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] ${item.needsRotationFix ? "rotate-180" : ""}`}
+                          style={{
+                            transform: item.needsRotationFix
+                              ? "rotate(180deg)"
+                              : "none",
+                          }}
+                          className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
                         />
                       ) : (
                         <Image
@@ -805,7 +853,12 @@ export function GuestBooth({
                 src={activeViewerItem.url}
                 controls
                 playsInline
-                className={`max-h-[82vh] w-full bg-black object-contain ${activeViewerItem.needsRotationFix ? "rotate-180" : ""}`}
+                style={{
+                  transform: activeViewerItem.needsRotationFix
+                    ? "rotate(180deg)"
+                    : "none",
+                }}
+                className="max-h-[82vh] w-full bg-black object-contain"
               />
             ) : (
               <Image
