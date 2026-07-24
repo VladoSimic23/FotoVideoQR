@@ -1007,14 +1007,24 @@ export function GuestBooth({
                   </button>
 
                   {canUseNativeCapture && (
-                    <button
-                      type="button"
-                      onClick={() => triggerNativeCapture(mode)}
-                      className="rounded-full border border-cyan-200/40 bg-cyan-300/20 px-5 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/30 disabled:opacity-50"
-                      disabled={isPublishing}
-                    >
-                      Use phone camera app
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => triggerNativeCapture("photo")}
+                        className="rounded-full border border-cyan-200/40 bg-cyan-300/20 px-5 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/30 disabled:opacity-50"
+                        disabled={isPublishing}
+                      >
+                        Use phone camera (photo)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => triggerNativeCapture("video")}
+                        className="rounded-full border border-cyan-200/40 bg-cyan-300/20 px-5 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/30 disabled:opacity-50"
+                        disabled={isPublishing}
+                      >
+                        Use phone camera (video)
+                      </button>
+                    </>
                   )}
                 </div>
                 {publishError && (
@@ -1193,10 +1203,10 @@ export function GuestBooth({
               {canUseNativeCapture && (
                 <button
                   type="button"
-                  onClick={() => triggerNativeCapture(mode)}
+                  onClick={() => triggerNativeCapture("video")}
                   disabled={isPublishing}
                   className="rounded-full border border-white/25 bg-black/40 p-3 text-white disabled:opacity-50"
-                  aria-label="Use native phone camera"
+                  aria-label="Use native phone camera for video"
                 >
                   <PhoneCameraIcon />
                 </button>
