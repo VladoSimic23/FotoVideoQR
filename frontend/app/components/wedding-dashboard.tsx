@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useMemo, useState } from "react";
 
 type DashboardMedia = {
@@ -286,10 +287,12 @@ export function WeddingDashboard({
                             playsInline
                           />
                         ) : item.image?.asset?.url ? (
-                          <img
+                          <Image
                             src={item.image.asset.url}
                             alt={item.guestName ?? "Guest media"}
-                            className="h-full w-full object-cover"
+                            fill
+                            sizes="80px"
+                            className="object-cover"
                           />
                         ) : null}
                       </div>

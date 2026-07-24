@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type CaptureMode = "photo" | "video";
@@ -10,23 +11,17 @@ type CapturedMedia = {
   previewUrl: string;
   file: File;
   durationSeconds?: number;
+  needsRotationFix?: boolean;
 };
 
 type PublishedItem = {
   id: string;
   kind: CaptureMode;
   url: string;
-  createdAt: string;
-  status: string;
+  needsRotationFix?: boolean;
 };
 
 const RECENT_REFRESH_MS = 15000;
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 export function GuestBooth({
   guestPath,
@@ -65,11 +60,17 @@ export function GuestBooth({
   );
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [isLandscape, setIsLandscape] = useState(false);
+  const [activeViewerIndex, setActiveViewerIndex] = useState<number | null>(
+    null,
+  );
+  const touchStartXRef = useRef<number | null>(null);
 
   const canRecordVideo = useMemo(
     () => typeof MediaRecorder !== "undefined",
     [],
   );
+  const shouldApplyFrontLandscapeFix = cameraFacing === "user" && isLandscape;
 
   const loadRecentPublished = useCallback(
     async (showLoading = true) => {
@@ -107,8 +108,6 @@ export function GuestBooth({
             id: entry._id,
             kind: entry.mediaKind === "video" ? "video" : "photo",
             url: entry.video?.asset?.url ?? entry.image?.asset?.url ?? "",
-            createdAt: entry._createdAt,
-            status: entry.status ?? "pending",
           }))
           .filter((entry) => Boolean(entry.url));
 
@@ -156,8 +155,6 @@ export function GuestBooth({
             id: entry._id,
             kind: entry.mediaKind === "video" ? "video" : "photo",
             url: entry.video?.asset?.url ?? entry.image?.asset?.url ?? "",
-            createdAt: entry._createdAt,
-            status: entry.status ?? "pending",
           }))
           .filter((entry) => Boolean(entry.url));
 
@@ -195,6 +192,56 @@ export function GuestBooth({
       window.clearInterval(intervalId);
     };
   }, [eventSlug, loadRecentPublished]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const updateOrientation = () => {
+      setIsLandscape(window.matchMedia("(orientation: landscape)").matches);
+    };
+
+    updateOrientation();
+    window.addEventListener("resize", updateOrientation);
+    window.addEventListener("orientationchange", updateOrientation);
+
+    return () => {
+      window.removeEventListener("resize", updateOrientation);
+      window.removeEventListener("orientationchange", updateOrientation);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (activeViewerIndex === null || publishedItems.length === 0) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setActiveViewerIndex(null);
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        setActiveViewerIndex((current) => {
+          if (current === null || publishedItems.length === 0) return current;
+          return current === 0 ? publishedItems.length - 1 : current - 1;
+        });
+      }
+
+      if (event.key === "ArrowRight") {
+        setActiveViewerIndex((current) => {
+          if (current === null || publishedItems.length === 0) return current;
+          return current === publishedItems.length - 1 ? 0 : current + 1;
+        });
+      }
+    }
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [activeViewerIndex, publishedItems]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -274,6 +321,10 @@ export function GuestBooth({
     const context = canvas.getContext("2d");
     if (!context) return;
 
+    if (shouldApplyFrontLandscapeFix) {
+      context.translate(canvas.width, canvas.height);
+      context.rotate(Math.PI);
+    }
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     const blob = await new Promise<Blob | null>((resolve) =>
@@ -288,7 +339,12 @@ export function GuestBooth({
 
     setCapturedMedia((current) => {
       if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
-      return { kind: "photo", file, previewUrl };
+      return {
+        kind: "photo",
+        file,
+        previewUrl,
+        needsRotationFix: false,
+      };
     });
 
     setPublishError(null);
@@ -323,6 +379,7 @@ export function GuestBooth({
           file,
           previewUrl,
           durationSeconds: recordingSeconds || undefined,
+          needsRotationFix: shouldApplyFrontLandscapeFix,
         };
       });
 
@@ -387,8 +444,7 @@ export function GuestBooth({
         id: result.submissionId ?? `${Date.now()}`,
         kind: capturedMedia.kind,
         url: result.assetUrl ?? capturedMedia.previewUrl,
-        createdAt: new Date().toISOString(),
-        status: result.status ?? "pending",
+        needsRotationFix: capturedMedia.needsRotationFix,
       };
 
       setPublishedItems((current) => [nextItem, ...current].slice(0, 8));
@@ -425,8 +481,55 @@ export function GuestBooth({
     setCaptureLabel("Capture deleted");
   }
 
+  const activeViewerItem =
+    activeViewerIndex !== null && publishedItems[activeViewerIndex]
+      ? publishedItems[activeViewerIndex]
+      : null;
+
+  function goToPreviousInViewer() {
+    setActiveViewerIndex((current) => {
+      if (current === null || publishedItems.length === 0) return current;
+      return current === 0 ? publishedItems.length - 1 : current - 1;
+    });
+  }
+
+  function goToNextInViewer() {
+    setActiveViewerIndex((current) => {
+      if (current === null || publishedItems.length === 0) return current;
+      return current === publishedItems.length - 1 ? 0 : current + 1;
+    });
+  }
+
+  function handleViewerTouchStart(event: React.TouchEvent<HTMLDivElement>) {
+    touchStartXRef.current = event.touches[0]?.clientX ?? null;
+  }
+
+  function handleViewerTouchEnd(event: React.TouchEvent<HTMLDivElement>) {
+    const startX = touchStartXRef.current;
+    const endX = event.changedTouches[0]?.clientX;
+
+    if (startX === null || endX === undefined) return;
+
+    const deltaX = endX - startX;
+    const swipeThreshold = 50;
+
+    if (deltaX >= swipeThreshold) {
+      goToPreviousInViewer();
+    } else if (deltaX <= -swipeThreshold) {
+      goToNextInViewer();
+    }
+
+    touchStartXRef.current = null;
+  }
+
   return (
     <main className="min-h-screen bg-[#07111f] text-slate-50">
+      <p className="sr-only" aria-live="polite">
+        {captureLabel}
+      </p>
+      <p className="sr-only">
+        Guest route: {guestPath}. Dashboard route: {dashboardPath}.
+      </p>
       <section className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-6 py-8 sm:px-10 lg:px-12">
         <header className="rounded-[2rem] border border-white/10 bg-white/5 px-6 py-5 backdrop-blur-xl">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -442,7 +545,7 @@ export function GuestBooth({
                 delete it, or publish it to the couple gallery.
               </p>
             </div>
-            <div className="flex flex-wrap gap-3 text-sm">
+            {/* <div className="flex flex-wrap gap-3 text-sm">
               <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2">
                 {captureLabel}
               </span>
@@ -452,7 +555,7 @@ export function GuestBooth({
               <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2">
                 {streamReady ? "Camera ready" : "Waiting for camera"}
               </span>
-            </div>
+            </div> */}
           </div>
         </header>
 
@@ -495,7 +598,7 @@ export function GuestBooth({
                     autoPlay
                     muted
                     playsInline
-                    className={`h-[420px] w-full object-cover ${capturedMedia ? "opacity-25" : "opacity-100"}`}
+                    className={`h-[420px] w-full object-cover ${capturedMedia ? "opacity-25" : "opacity-100"} ${shouldApplyFrontLandscapeFix ? "rotate-180" : ""}`}
                   />
                   {capturedMedia && (
                     <div className="absolute inset-0 flex items-center justify-center p-4">
@@ -504,12 +607,15 @@ export function GuestBooth({
                           src={capturedMedia.previewUrl}
                           controls
                           playsInline
-                          className="max-h-[420px] w-full rounded-[1.25rem] object-cover shadow-2xl"
+                          className={`max-h-[420px] w-full rounded-[1.25rem] object-cover shadow-2xl ${capturedMedia.needsRotationFix ? "rotate-180" : ""}`}
                         />
                       ) : (
-                        <img
+                        <Image
                           src={capturedMedia.previewUrl}
                           alt="Captured preview"
+                          width={1280}
+                          height={720}
+                          unoptimized
                           className="max-h-[420px] w-full rounded-[1.25rem] object-cover shadow-2xl"
                         />
                       )}
@@ -598,68 +704,55 @@ export function GuestBooth({
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-500"
                   />
                 </label>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                  <p className="font-medium text-white">Capture details</p>
-                  <p className="mt-2">
-                    Format: {mode === "video" ? "WebM video" : "JPEG photo"}
-                  </p>
-                  <p>Preview file size is shown after capture.</p>
-                  {capturedMedia && (
-                    <PreviewStats previewUrl={capturedMedia.previewUrl} />
-                  )}
-                </div>
               </aside>
             </div>
           </section>
 
-          <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6 backdrop-blur-xl">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
+          <section className="rounded-[2rem] border border-white/10 bg-white/5 p-3 backdrop-blur-xl sm:p-6">
+            {/* <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <div>
                 <p className="text-sm text-slate-300">Recent published</p>
                 <h2 className="mt-1 text-2xl font-semibold text-white">
                   Your last shares
                 </h2>
               </div>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.24em] text-cyan-100">
-                sync with Sanity
-              </span>
-            </div>
+           
+            </div> */}
 
             <div className="mt-5 space-y-4">
               {publishedItems.length > 0 ? (
-                publishedItems.map((item) => (
-                  <article
-                    key={item.id}
-                    className="rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4"
-                  >
-                    <div className="flex items-center justify-between text-sm text-slate-300">
-                      <span className="font-medium text-white">
-                        {item.kind === "video" ? "Video" : "Photo"}
-                      </span>
-                      <span>
-                        {new Date(item.createdAt).toLocaleTimeString("hr-HR")}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs uppercase tracking-[0.2em] text-emerald-200">
-                      {item.status}
-                    </p>
-                    <div className="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-slate-900">
+                <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
+                  {publishedItems.map((item, index) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveViewerIndex(index)}
+                      className="group relative aspect-square overflow-hidden rounded-2xl border border-white/10 bg-slate-900"
+                    >
                       {item.kind === "video" ? (
                         <video
                           src={item.url}
-                          controls
-                          className="h-56 w-full object-cover"
+                          muted
+                          playsInline
+                          preload="metadata"
+                          className={`h-full w-full object-cover transition duration-300 group-hover:scale-[1.03] ${item.needsRotationFix ? "rotate-180" : ""}`}
                         />
                       ) : (
-                        <img
+                        <Image
                           src={item.url}
                           alt="Published item"
-                          className="h-56 w-full object-cover"
+                          fill
+                          sizes="(max-width: 640px) 25vw, (max-width: 1024px) 16vw, 12vw"
+                          className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
                         />
                       )}
-                    </div>
-                  </article>
-                ))
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 to-transparent opacity-90" />
+                      <span className="absolute bottom-2 right-2 rounded-full border border-white/20 bg-black/50 p-1.5 text-white backdrop-blur-sm">
+                        {item.kind === "video" ? <VideoIcon /> : <ImageIcon />}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               ) : isLoadingRecent ? (
                 <div className="rounded-[1.5rem] border border-dashed border-white/15 bg-white/5 px-6 py-12 text-center text-sm leading-7 text-slate-300">
                   Loading shared event feed...
@@ -671,42 +764,128 @@ export function GuestBooth({
                 </div>
               )}
             </div>
-
-            <div className="mt-6 rounded-[1.5rem] border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-              <p className="text-white">Navigation</p>
-              <p className="mt-2">Guest route: {guestPath}</p>
-              <p>Dashboard route: {dashboardPath}</p>
-            </div>
           </section>
         </div>
       </section>
+
+      {activeViewerItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 px-3 py-6 backdrop-blur-sm sm:px-8"
+          onClick={() => setActiveViewerIndex(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setActiveViewerIndex(null)}
+            className="absolute right-4 top-4 rounded-full border border-white/20 bg-black/40 p-2 text-white transition hover:bg-black/60 sm:right-6 sm:top-6"
+            aria-label="Close gallery"
+          >
+            <CloseIcon />
+          </button>
+
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              goToPreviousInViewer();
+            }}
+            className="absolute left-2 top-1/2 z-20 -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-2 text-white transition hover:bg-black/60 sm:left-6"
+            aria-label="Previous media"
+          >
+            <ArrowLeftIcon />
+          </button>
+
+          <div
+            className="relative w-full max-w-4xl overflow-hidden rounded-[1.5rem] border border-white/15 bg-black/40"
+            onClick={(event) => event.stopPropagation()}
+            onTouchStart={handleViewerTouchStart}
+            onTouchEnd={handleViewerTouchEnd}
+          >
+            {activeViewerItem.kind === "video" ? (
+              <video
+                src={activeViewerItem.url}
+                controls
+                playsInline
+                className={`max-h-[82vh] w-full bg-black object-contain ${activeViewerItem.needsRotationFix ? "rotate-180" : ""}`}
+              />
+            ) : (
+              <Image
+                src={activeViewerItem.url}
+                alt="Gallery preview"
+                width={1600}
+                height={1200}
+                className="max-h-[82vh] h-auto w-full bg-black object-contain"
+              />
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              goToNextInViewer();
+            }}
+            className="absolute right-2 top-1/2 z-20 -translate-y-1/2 rounded-full border border-white/20 bg-black/40 p-2 text-white transition hover:bg-black/60 sm:right-6"
+            aria-label="Next media"
+          >
+            <ArrowRightIcon />
+          </button>
+        </div>
+      )}
     </main>
   );
 }
 
-function PreviewStats({ previewUrl }: { previewUrl: string }) {
-  const [stats, setStats] = useState<{ size?: number } | null>(null);
+function ImageIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5zm2.5-.5a.5.5 0 0 0-.5.5v8.38l3.6-3.61a1.4 1.4 0 0 1 1.98 0l1.2 1.2 2.6-2.59a1.4 1.4 0 0 1 1.98 0L18 9.58V5.5a.5.5 0 0 0-.5-.5zm11.5 7.41-2.02-2.02-3.2 3.2a1 1 0 0 1-1.42 0L10.59 12l-4.59 4.58v1.92a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5zM9 8.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0"
+      />
+    </svg>
+  );
+}
 
-  useEffect(() => {
-    let cancelled = false;
+function VideoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M4 6.5A2.5 2.5 0 0 1 6.5 4h8A2.5 2.5 0 0 1 17 6.5v2.18l2.87-1.76A1.5 1.5 0 0 1 22 8.2v7.6a1.5 1.5 0 0 1-2.13 1.28L17 15.32v2.18a2.5 2.5 0 0 1-2.5 2.5h-8A2.5 2.5 0 0 1 4 17.5zm11 6.47 4.82 2.96a.5.5 0 0 0 .18.07V8a.5.5 0 0 0-.18.07L15 11.03z"
+      />
+    </svg>
+  );
+}
 
-    async function getStats() {
-      try {
-        const response = await fetch(previewUrl);
-        const blob = await response.blob();
-        if (!cancelled) setStats({ size: blob.size });
-      } catch {
-        if (!cancelled) setStats(null);
-      }
-    }
+function ArrowLeftIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M14.78 5.47a.75.75 0 0 1 0 1.06L9.31 12l5.47 5.47a.75.75 0 1 1-1.06 1.06l-6-6a.75.75 0 0 1 0-1.06l6-6a.75.75 0 0 1 1.06 0"
+      />
+    </svg>
+  );
+}
 
-    void getStats();
-    return () => {
-      cancelled = true;
-    };
-  }, [previewUrl]);
+function ArrowRightIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M9.22 5.47a.75.75 0 0 1 1.06 0l6 6a.75.75 0 0 1 0 1.06l-6 6a.75.75 0 1 1-1.06-1.06L14.69 12 9.22 6.53a.75.75 0 0 1 0-1.06"
+      />
+    </svg>
+  );
+}
 
-  if (!stats?.size) return null;
-
-  return <p className="mt-2">Approx size: {formatBytes(stats.size)}</p>;
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M6.72 6.72a.75.75 0 0 1 1.06 0L12 10.94l4.22-4.22a.75.75 0 1 1 1.06 1.06L13.06 12l4.22 4.22a.75.75 0 1 1-1.06 1.06L12 13.06l-4.22 4.22a.75.75 0 1 1-1.06-1.06L10.94 12 6.72 7.78a.75.75 0 0 1 0-1.06"
+      />
+    </svg>
+  );
 }

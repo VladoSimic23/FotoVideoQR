@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 type GalleryMedia = {
   _id: string;
   _createdAt: string;
@@ -178,9 +180,11 @@ export function WeddingExperience({
               <div className="grid gap-4">
                 <div className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-white/6 p-4 shadow-xl">
                   {hasHero ? (
-                    <img
+                    <Image
                       src={event?.heroImage?.asset?.url}
                       alt={event?.heroImage?.alt ?? coupleLabel}
+                      width={1200}
+                      height={720}
                       className="h-72 w-full rounded-[1.25rem] object-cover"
                     />
                   ) : (
@@ -290,14 +294,16 @@ export function WeddingExperience({
                           src={media.video.asset.url}
                         />
                       ) : media.image?.asset?.url ? (
-                        <img
+                        <Image
                           src={media.image.asset.url}
                           alt={
                             media.image.alt ??
                             media.guestName ??
                             "Wedding media"
                           }
-                          className="h-full w-full object-cover transition duration-500 hover:scale-[1.03]"
+                          fill
+                          sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
+                          className="object-cover transition duration-500 hover:scale-[1.03]"
                         />
                       ) : (
                         <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.18),_transparent_35%),linear-gradient(135deg,_rgba(15,23,42,0.95),_rgba(244,197,160,0.22))] p-6 text-center text-slate-100">
