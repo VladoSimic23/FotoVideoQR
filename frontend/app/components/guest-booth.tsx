@@ -23,49 +23,6 @@ type PublishedItem = {
 
 const RECENT_REFRESH_MS = 15000;
 
-function detectLandscapeOrientation() {
-  if (typeof window === "undefined") return false;
-
-  const orientation = window.screen?.orientation;
-  if (orientation && typeof orientation.angle === "number") {
-    if (Math.abs(orientation.angle) === 90) {
-      return true;
-    }
-  }
-
-  const legacyOrientation = (window as Window & { orientation?: number })
-    .orientation;
-  if (typeof legacyOrientation === "number") {
-    if (Math.abs(legacyOrientation) === 90) {
-      return true;
-    }
-  }
-
-  const viewport = window.visualViewport;
-  if (viewport) {
-    return viewport.width > viewport.height;
-  }
-
-  return window.innerWidth > window.innerHeight;
-}
-
-function detectOrientationAngle() {
-  if (typeof window === "undefined") return null;
-
-  const orientation = window.screen?.orientation;
-  if (orientation && typeof orientation.angle === "number") {
-    return orientation.angle;
-  }
-
-  const legacyOrientation = (window as Window & { orientation?: number })
-    .orientation;
-  if (typeof legacyOrientation === "number") {
-    return legacyOrientation;
-  }
-
-  return null;
-}
-
 export function GuestBooth({
   guestPath,
   dashboardPath,
@@ -103,11 +60,7 @@ export function GuestBooth({
   );
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
-  const [isLandscape, setIsLandscape] = useState(false);
-  const [orientationAngle, setOrientationAngle] = useState<number | null>(null);
-  const [frontRotationOverride, setFrontRotationOverride] = useState<
-    "auto" | "on" | "off"
-  >("auto");
+  const [frontRotationEnabled, setFrontRotationEnabled] = useState(true);
   const [activeViewerIndex, setActiveViewerIndex] = useState<number | null>(
     null,
   );
@@ -118,17 +71,10 @@ export function GuestBooth({
     [],
   );
 
-  const shouldApplyFrontLandscapeFix = useMemo(() => {
+  const shouldRotateFrontCamera = useMemo(() => {
     if (cameraFacing !== "user") return false;
-
-    if (frontRotationOverride === "on") return true;
-    if (frontRotationOverride === "off") return false;
-
-    if (orientationAngle === 90 || orientationAngle === -270) return true;
-    if (orientationAngle === -90 || orientationAngle === 270) return false;
-
-    return isLandscape;
-  }, [cameraFacing, frontRotationOverride, orientationAngle, isLandscape]);
+    return frontRotationEnabled;
+  }, [cameraFacing, frontRotationEnabled]);
 
   const loadRecentPublished = useCallback(
     async (showLoading = true) => {
@@ -252,36 +198,6 @@ export function GuestBooth({
   }, [eventSlug, loadRecentPublished]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const updateOrientation = () => {
-      setIsLandscape(detectLandscapeOrientation());
-      setOrientationAngle(detectOrientationAngle());
-    };
-
-    updateOrientation();
-    window.addEventListener("resize", updateOrientation);
-    window.addEventListener("orientationchange", updateOrientation);
-    window.visualViewport?.addEventListener("resize", updateOrientation);
-    window.screen?.orientation?.addEventListener("change", updateOrientation);
-    document.addEventListener("visibilitychange", updateOrientation);
-
-    const pollId = window.setInterval(updateOrientation, 500);
-
-    return () => {
-      window.clearInterval(pollId);
-      window.removeEventListener("resize", updateOrientation);
-      window.removeEventListener("orientationchange", updateOrientation);
-      window.visualViewport?.removeEventListener("resize", updateOrientation);
-      window.screen?.orientation?.removeEventListener(
-        "change",
-        updateOrientation,
-      );
-      document.removeEventListener("visibilitychange", updateOrientation);
-    };
-  }, []);
-
-  useEffect(() => {
     if (activeViewerIndex === null || publishedItems.length === 0) return;
 
     function onKeyDown(event: KeyboardEvent) {
@@ -385,15 +301,8 @@ export function GuestBooth({
   async function capturePhoto() {
     const video = videoRef.current;
     if (!video) return;
-    const isLandscapeNow = detectLandscapeOrientation();
-    const angleNow = detectOrientationAngle();
     const shouldRotateFrontAtCapture =
-      cameraFacing === "user" &&
-      (frontRotationOverride === "on" ||
-        (frontRotationOverride === "auto" &&
-          (angleNow === 90 ||
-            angleNow === -270 ||
-            (angleNow === null && isLandscapeNow))));
+      cameraFacing === "user" && frontRotationEnabled;
 
     const canvas = document.createElement("canvas");
     canvas.width = video.videoWidth || 1280;
@@ -434,15 +343,8 @@ export function GuestBooth({
   async function startRecording() {
     const stream = streamRef.current;
     if (!stream || !canRecordVideo) return;
-    const isLandscapeNow = detectLandscapeOrientation();
-    const angleNow = detectOrientationAngle();
     const shouldRotateFrontForThisRecording =
-      cameraFacing === "user" &&
-      (frontRotationOverride === "on" ||
-        (frontRotationOverride === "auto" &&
-          (angleNow === 90 ||
-            angleNow === -270 ||
-            (angleNow === null && isLandscapeNow))));
+      cameraFacing === "user" && frontRotationEnabled;
 
     chunksRef.current = [];
     const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
@@ -680,19 +582,11 @@ export function GuestBooth({
               {cameraFacing === "user" && (
                 <button
                   type="button"
-                  onClick={() =>
-                    setFrontRotationOverride((current) =>
-                      current === "auto"
-                        ? "on"
-                        : current === "on"
-                          ? "off"
-                          : "auto",
-                    )
-                  }
+                  onClick={() => setFrontRotationEnabled((current) => !current)}
                   disabled={isRecording || isPublishing}
                   className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10 disabled:opacity-50"
                 >
-                  Front rotate: {frontRotationOverride}
+                  Front correction: {frontRotationEnabled ? "on" : "off"}
                 </button>
               )}
             </div>
@@ -706,7 +600,7 @@ export function GuestBooth({
                     muted
                     playsInline
                     style={{
-                      transform: shouldApplyFrontLandscapeFix
+                      transform: shouldRotateFrontCamera
                         ? "rotate(180deg)"
                         : "none",
                     }}
