@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type CameraFacing = "user" | "environment";
 
@@ -55,14 +55,6 @@ export function GuestBooth({
     null,
   );
   const touchStartXRef = useRef<number | null>(null);
-
-  const canUseNativeCapture = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      typeof HTMLInputElement !== "undefined" &&
-      "capture" in HTMLInputElement.prototype,
-    [],
-  );
 
   const loadRecentPublished = useCallback(
     async (showLoading = true) => {
@@ -369,12 +361,30 @@ export function GuestBooth({
     touchStartXRef.current = null;
   }
 
+  function openNativePicker(input: HTMLInputElement | null) {
+    if (!input) {
+      setCaptureLabel("Camera input is not ready yet.");
+      return;
+    }
+
+    try {
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+        return;
+      }
+    } catch {
+      // Fallback to click() for browsers that block showPicker().
+    }
+
+    input.click();
+  }
+
   function triggerNativePhotoCapture() {
-    nativePhotoInputRef.current?.click();
+    openNativePicker(nativePhotoInputRef.current);
   }
 
   function triggerNativeVideoCapture() {
-    nativeVideoInputRef.current?.click();
+    openNativePicker(nativeVideoInputRef.current);
   }
 
   async function getVideoDurationFromFile(file: File) {
@@ -475,7 +485,7 @@ export function GuestBooth({
             <button
               type="button"
               onClick={triggerNativePhotoCapture}
-              disabled={isPublishing || !canUseNativeCapture}
+              disabled={isPublishing}
               className="inline-flex items-center gap-2 self-start rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
             >
               <CameraIcon />
@@ -506,7 +516,7 @@ export function GuestBooth({
               <button
                 type="button"
                 onClick={triggerNativePhotoCapture}
-                disabled={isPublishing || !canUseNativeCapture}
+                disabled={isPublishing}
                 className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10"
               >
                 Use phone camera (photo)
@@ -514,7 +524,7 @@ export function GuestBooth({
               <button
                 type="button"
                 onClick={triggerNativeVideoCapture}
-                disabled={isPublishing || !canUseNativeCapture}
+                disabled={isPublishing}
                 className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10"
               >
                 Use phone camera (video)
@@ -558,7 +568,7 @@ export function GuestBooth({
                     type="button"
                     onClick={triggerNativePhotoCapture}
                     className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-50 disabled:opacity-50"
-                    disabled={isPublishing || !canUseNativeCapture}
+                    disabled={isPublishing}
                   >
                     Use phone camera (photo)
                   </button>
@@ -567,7 +577,7 @@ export function GuestBooth({
                     type="button"
                     onClick={triggerNativeVideoCapture}
                     className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-50 disabled:opacity-50"
-                    disabled={isPublishing || !canUseNativeCapture}
+                    disabled={isPublishing}
                   >
                     Use phone camera (video)
                   </button>
