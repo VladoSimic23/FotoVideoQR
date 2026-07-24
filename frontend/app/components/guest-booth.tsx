@@ -21,6 +21,21 @@ type PublishedItem = {
 
 const RECENT_REFRESH_MS = 15000;
 
+function getPreferredRecorderMimeType() {
+  if (typeof MediaRecorder === "undefined") return undefined;
+
+  const candidates = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+    "video/mp4",
+  ];
+
+  return candidates.find((candidate) =>
+    MediaRecorder.isTypeSupported(candidate),
+  );
+}
+
 export function GuestBooth({
   guestPath,
   dashboardPath,
@@ -372,13 +387,15 @@ export function GuestBooth({
       const sourceWidth = sourceVideo.videoWidth || 0;
       const sourceHeight = sourceVideo.videoHeight || 0;
 
-      if (!sourceWidth || !sourceHeight || sourceWidth <= sourceHeight) {
+      if (!sourceWidth || !sourceHeight) {
         return inputBlob;
       }
 
+      const isLandscapeSource = sourceWidth > sourceHeight;
+
       const canvas = document.createElement("canvas");
-      canvas.width = sourceHeight;
-      canvas.height = sourceWidth;
+      canvas.width = isLandscapeSource ? sourceHeight : sourceWidth;
+      canvas.height = isLandscapeSource ? sourceWidth : sourceHeight;
       const context = canvas.getContext("2d");
       if (!context) return inputBlob;
 
@@ -408,11 +425,16 @@ export function GuestBooth({
       let rafId = 0;
       const drawFrame = () => {
         context.clearRect(0, 0, canvas.width, canvas.height);
-        context.save();
-        context.translate(canvas.width, 0);
-        context.rotate(Math.PI / 2);
-        context.drawImage(sourceVideo, 0, 0, sourceWidth, sourceHeight);
-        context.restore();
+
+        if (isLandscapeSource) {
+          context.save();
+          context.translate(canvas.width, 0);
+          context.rotate(Math.PI / 2);
+          context.drawImage(sourceVideo, 0, 0, sourceWidth, sourceHeight);
+          context.restore();
+        } else {
+          context.drawImage(sourceVideo, 0, 0, sourceWidth, sourceHeight);
+        }
 
         if (!sourceVideo.paused && !sourceVideo.ended) {
           rafId = requestAnimationFrame(drawFrame);
@@ -455,7 +477,10 @@ export function GuestBooth({
     if (!stream || !canRecordVideo) return;
 
     chunksRef.current = [];
-    const recorder = new MediaRecorder(stream, { mimeType: "video/webm" });
+    const mimeType = getPreferredRecorderMimeType();
+    const recorder = mimeType
+      ? new MediaRecorder(stream, { mimeType })
+      : new MediaRecorder(stream);
     recorderRef.current = recorder;
 
     recorder.ondataavailable = (event) => {
@@ -467,9 +492,9 @@ export function GuestBooth({
     recorder.onstop = () => {
       void (async () => {
         const recordedBlob = new Blob(chunksRef.current, {
-          type: "video/webm",
+          type: recorder.mimeType || mimeType || "video/webm",
         });
-        setCaptureLabel("Processing video...");
+        setCaptureLabel("Processing video to portrait...");
 
         const processedBlob = await normalizeVideoToPortrait(recordedBlob);
         const file = new File(
