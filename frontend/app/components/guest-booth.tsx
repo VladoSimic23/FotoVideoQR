@@ -36,6 +36,16 @@ function getPreferredRecorderMimeType() {
   );
 }
 
+function isDeviceLandscapeNow() {
+  if (typeof window === "undefined") return false;
+
+  if (window.screen?.orientation?.type) {
+    return window.screen.orientation.type.startsWith("landscape");
+  }
+
+  return window.matchMedia("(orientation: landscape)").matches;
+}
+
 export function GuestBooth({
   guestPath,
   dashboardPath,
@@ -319,7 +329,8 @@ export function GuestBooth({
     if (!video) return;
     const sourceWidth = video.videoWidth || 1280;
     const sourceHeight = video.videoHeight || 720;
-    const shouldSaveAsPortrait = sourceWidth > sourceHeight;
+    const shouldSaveAsPortrait =
+      sourceWidth > sourceHeight || isDeviceLandscapeNow();
 
     const canvas = document.createElement("canvas");
     canvas.width = shouldSaveAsPortrait ? sourceHeight : sourceWidth;
@@ -358,7 +369,10 @@ export function GuestBooth({
     setCaptureLabel("Photo preview ready");
   }
 
-  async function normalizeVideoToPortrait(inputBlob: Blob) {
+  async function normalizeVideoToPortrait(
+    inputBlob: Blob,
+    forcePortraitFromLandscape: boolean,
+  ) {
     if (typeof document === "undefined") return inputBlob;
 
     const captureStreamSupported =
@@ -392,10 +406,12 @@ export function GuestBooth({
       }
 
       const isLandscapeSource = sourceWidth > sourceHeight;
+      const shouldRotateToPortrait =
+        forcePortraitFromLandscape || isLandscapeSource;
 
       const canvas = document.createElement("canvas");
-      canvas.width = isLandscapeSource ? sourceHeight : sourceWidth;
-      canvas.height = isLandscapeSource ? sourceWidth : sourceHeight;
+      canvas.width = shouldRotateToPortrait ? sourceHeight : sourceWidth;
+      canvas.height = shouldRotateToPortrait ? sourceWidth : sourceHeight;
       const context = canvas.getContext("2d");
       if (!context) return inputBlob;
 
@@ -426,7 +442,7 @@ export function GuestBooth({
       const drawFrame = () => {
         context.clearRect(0, 0, canvas.width, canvas.height);
 
-        if (isLandscapeSource) {
+        if (shouldRotateToPortrait) {
           context.save();
           context.translate(canvas.width, 0);
           context.rotate(Math.PI / 2);
@@ -475,6 +491,7 @@ export function GuestBooth({
   async function startRecording() {
     const stream = streamRef.current;
     if (!stream || !canRecordVideo) return;
+    const shouldForcePortraitFromLandscape = isDeviceLandscapeNow();
 
     chunksRef.current = [];
     const mimeType = getPreferredRecorderMimeType();
@@ -496,7 +513,10 @@ export function GuestBooth({
         });
         setCaptureLabel("Processing video to portrait...");
 
-        const processedBlob = await normalizeVideoToPortrait(recordedBlob);
+        const processedBlob = await normalizeVideoToPortrait(
+          recordedBlob,
+          shouldForcePortraitFromLandscape,
+        );
         const file = new File(
           [processedBlob],
           `wedding-video-${Date.now()}.webm`,
