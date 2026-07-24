@@ -277,7 +277,7 @@ export function WeddingDashboard({
                     className="flex flex-col gap-4 rounded-[1.5rem] border border-white/10 bg-slate-950/55 p-4 md:flex-row md:items-center md:justify-between"
                   >
                     <div className="flex items-center gap-4">
-                      <div className="h-20 w-20 overflow-hidden rounded-2xl bg-slate-900">
+                      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-slate-900">
                         {item.mediaKind === "video" &&
                         item.video?.asset?.url ? (
                           <video

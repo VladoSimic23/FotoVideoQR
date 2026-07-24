@@ -16,6 +16,8 @@ type PublishedItem = {
   id: string;
   kind: "photo" | "video";
   url: string;
+  guestName?: string;
+  caption?: string;
 };
 
 const RECENT_REFRESH_MS = 15000;
@@ -38,7 +40,7 @@ export function GuestBooth({
   const nativePhotoInputRef = useRef<HTMLInputElement | null>(null);
   const nativeVideoInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [cameraFacing, setCameraFacing] = useState<CameraFacing>("user");
+  const [cameraFacing] = useState<CameraFacing>("user");
   const [captureLabel, setCaptureLabel] = useState("Ready to capture");
   const [guestName, setGuestName] = useState("");
   const [caption, setCaption] = useState("");
@@ -78,6 +80,8 @@ export function GuestBooth({
             _createdAt: string;
             mediaKind?: "image" | "video";
             status?: string;
+            guestName?: string;
+            caption?: string;
             image?: { asset?: { url?: string } };
             video?: { asset?: { url?: string } };
           }>;
@@ -92,6 +96,8 @@ export function GuestBooth({
             id: entry._id,
             kind: entry.mediaKind === "video" ? "video" : "photo",
             url: entry.video?.asset?.url ?? entry.image?.asset?.url ?? "",
+            guestName: entry.guestName,
+            caption: entry.caption,
           }))
           .filter((entry) => Boolean(entry.url));
 
@@ -125,6 +131,8 @@ export function GuestBooth({
             _createdAt: string;
             mediaKind?: "image" | "video";
             status?: string;
+            guestName?: string;
+            caption?: string;
             image?: { asset?: { url?: string } };
             video?: { asset?: { url?: string } };
           }>;
@@ -139,6 +147,8 @@ export function GuestBooth({
             id: entry._id,
             kind: entry.mediaKind === "video" ? "video" : "photo",
             url: entry.video?.asset?.url ?? entry.image?.asset?.url ?? "",
+            guestName: entry.guestName,
+            caption: entry.caption,
           }))
           .filter((entry) => Boolean(entry.url));
 
@@ -284,6 +294,8 @@ export function GuestBooth({
         id: result.submissionId ?? `${Date.now()}`,
         kind: capturedMedia.kind,
         url: result.assetUrl ?? capturedMedia.previewUrl,
+        guestName: guestName.trim() || undefined,
+        caption: caption.trim() || undefined,
       };
 
       setPublishedItems((current) => [nextItem, ...current].slice(0, 8));
@@ -471,71 +483,26 @@ export function GuestBooth({
         <header className="rounded-[2rem] border border-white/10 bg-white/5 px-6 py-5 backdrop-blur-xl">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.32em] text-cyan-100/80">
-                Guest capture
-              </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
                 {coupleNames}
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-                {title} · Guests can shoot a photo or short video, preview it,
-                delete it, or publish it to the couple gallery.
+                {title} · Dobro došli na vjenčanje! 🥂 Hvala vam što ste danas s
+                nama! Pomozite nam sačuvati sve dragocjene i lude trenutke s
+                naše svadbe. Uslikajte ili snimite kratki video, podijelite ga u
+                zajednički album i pogledajte kako ekipa uživa! 📸
               </p>
             </div>
-            <button
-              type="button"
-              onClick={triggerNativePhotoCapture}
-              disabled={isPublishing}
-              className="inline-flex items-center gap-2 self-start rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
-            >
-              <CameraIcon />
-              Use phone camera (photo)
-            </button>
           </div>
         </header>
 
         <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
           <section className="rounded-[2rem] border border-white/10 bg-white/5 p-4 shadow-2xl shadow-black/20 backdrop-blur-xl sm:p-6">
-            <div className="flex flex-wrap gap-3 border-b border-white/10 pb-4">
-              {(
-                [
-                  { value: "user", label: "Front camera" },
-                  { value: "environment", label: "Back camera" },
-                ] as const
-              ).map((camera) => (
-                <button
-                  key={camera.value}
-                  type="button"
-                  onClick={() => setCameraFacing(camera.value)}
-                  disabled={isPublishing}
-                  className={`rounded-full px-4 py-2 text-sm font-medium transition ${cameraFacing === camera.value ? "bg-cyan-300 text-slate-950" : "border border-white/10 bg-white/5 text-white hover:bg-white/10"} disabled:opacity-50`}
-                >
-                  {camera.label}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={triggerNativePhotoCapture}
-                disabled={isPublishing}
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10"
-              >
-                Use phone camera (photo)
-              </button>
-              <button
-                type="button"
-                onClick={triggerNativeVideoCapture}
-                disabled={isPublishing}
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10"
-              >
-                Use phone camera (video)
-              </button>
-            </div>
-
             <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_0.8fr]">
               <div className="space-y-4">
                 <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-slate-950/80">
                   {capturedMedia && (
-                    <div className="flex min-h-[420px] items-center justify-center p-4">
+                    <div className="relative flex min-h-[420px] items-center justify-center p-4">
                       {capturedMedia.kind === "video" ? (
                         <video
                           src={capturedMedia.previewUrl}
@@ -555,13 +522,28 @@ export function GuestBooth({
                       )}
                     </div>
                   )}
-                  {!capturedMedia && (
+                  {/* {!capturedMedia && (
                     <div className="flex h-[420px] items-center justify-center px-6 text-center text-sm text-slate-300">
                       Tap Take photo to open your phone camera and preview the
                       shot here.
                     </div>
-                  )}
+                  )} */}
                 </div>
+
+                {capturedMedia && (guestName.trim() || caption.trim()) && (
+                  <div className="rounded-xl border border-white/10 bg-slate-950/55 px-4 py-3">
+                    {guestName.trim() && (
+                      <p className="text-sm font-semibold text-white">
+                        {guestName.trim()}
+                      </p>
+                    )}
+                    {caption.trim() && (
+                      <p className="mt-1 text-xs leading-5 text-slate-100">
+                        {caption.trim()}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex flex-wrap gap-3">
                   <button
@@ -570,7 +552,7 @@ export function GuestBooth({
                     className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-50 disabled:opacity-50"
                     disabled={isPublishing}
                   >
-                    Use phone camera (photo)
+                    📸 Uslikaj fotku
                   </button>
 
                   <button
@@ -579,62 +561,68 @@ export function GuestBooth({
                     className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-50 disabled:opacity-50"
                     disabled={isPublishing}
                   >
-                    Use phone camera (video)
+                    🎥 Snimi video
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={deleteCapture}
-                    className="rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-50"
-                    disabled={!capturedMedia || isPublishing}
-                  >
-                    Delete
-                  </button>
+                  {capturedMedia && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={deleteCapture}
+                        className="rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-50"
+                        disabled={isPublishing}
+                      >
+                        Delete
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={resetCapture}
-                    className="rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-50"
-                    disabled={!capturedMedia || isPublishing}
-                  >
-                    Retake
-                  </button>
+                      <button
+                        type="button"
+                        onClick={resetCapture}
+                        className="rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-50"
+                        disabled={isPublishing}
+                      >
+                        Retake
+                      </button>
 
-                  <button
-                    type="button"
-                    onClick={publishCurrent}
-                    className="rounded-full border border-white/10 bg-emerald-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:opacity-50"
-                    disabled={!capturedMedia || isPublishing}
-                  >
-                    {isPublishing ? "Publishing..." : "Publish"}
-                  </button>
+                      <button
+                        type="button"
+                        onClick={publishCurrent}
+                        className="rounded-full border border-white/10 bg-emerald-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:opacity-50"
+                        disabled={isPublishing}
+                      >
+                        {isPublishing ? "Publishing..." : "Publish"}
+                      </button>
+                    </>
+                  )}
                 </div>
                 {publishError && (
                   <p className="text-sm text-rose-300">{publishError}</p>
                 )}
               </div>
 
-              <aside className="space-y-4 rounded-[1.75rem] border border-white/10 bg-slate-950/55 p-4">
-                <label className="block text-sm text-slate-300">
-                  Guest name
-                  <input
-                    value={guestName}
-                    onChange={(event) => setGuestName(event.target.value)}
-                    placeholder="Optional"
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-500"
-                  />
-                </label>
-                <label className="block text-sm text-slate-300">
-                  Caption
-                  <textarea
-                    value={caption}
-                    onChange={(event) => setCaption(event.target.value)}
-                    placeholder="Write a small memory..."
-                    rows={6}
-                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-500"
-                  />
-                </label>
-              </aside>
+              {capturedMedia && (
+                <aside className="space-y-4 rounded-[1.75rem] border border-white/10 bg-slate-950/55 p-4">
+                  <label className="block text-sm text-slate-300">
+                    Guest name
+                    <input
+                      value={guestName}
+                      onChange={(event) => setGuestName(event.target.value)}
+                      placeholder="Optional"
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-500"
+                    />
+                  </label>
+                  <label className="block text-sm text-slate-300">
+                    Caption
+                    <textarea
+                      value={caption}
+                      onChange={(event) => setCaption(event.target.value)}
+                      placeholder="Write a small memory..."
+                      rows={6}
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-500"
+                    />
+                  </label>
+                </aside>
+              )}
             </div>
           </section>
 
@@ -647,7 +635,7 @@ export function GuestBooth({
                       key={item.id}
                       type="button"
                       onClick={() => setActiveViewerIndex(index)}
-                      className="group relative aspect-square overflow-hidden rounded-2xl border border-white/10 bg-slate-900"
+                      className="group relative aspect-square w-full overflow-hidden rounded-2xl border border-white/10 bg-slate-900"
                     >
                       {item.kind === "video" ? (
                         <video
@@ -666,7 +654,6 @@ export function GuestBooth({
                           className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
                         />
                       )}
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 to-transparent opacity-90" />
                       <span className="absolute bottom-2 right-2 rounded-full border border-white/20 bg-black/50 p-1.5 text-white backdrop-blur-sm">
                         {item.kind === "video" ? <VideoIcon /> : <ImageIcon />}
                       </span>
@@ -715,26 +702,43 @@ export function GuestBooth({
           </button>
 
           <div
-            className="relative w-full max-w-4xl overflow-hidden rounded-[1.5rem] border border-white/15 bg-black/40"
+            className="w-full max-w-4xl overflow-hidden rounded-[1.5rem] border border-white/15 bg-black/40"
             onClick={(event) => event.stopPropagation()}
             onTouchStart={handleViewerTouchStart}
             onTouchEnd={handleViewerTouchEnd}
           >
-            {activeViewerItem.kind === "video" ? (
-              <video
-                src={activeViewerItem.url}
-                controls
-                playsInline
-                className="max-h-[82vh] w-full bg-black object-contain"
-              />
-            ) : (
-              <Image
-                src={activeViewerItem.url}
-                alt="Gallery preview"
-                width={1600}
-                height={1200}
-                className="max-h-[82vh] h-auto w-full bg-black object-contain"
-              />
+            <div className="max-h-[82vh] overflow-hidden">
+              {activeViewerItem.kind === "video" ? (
+                <video
+                  src={activeViewerItem.url}
+                  controls
+                  playsInline
+                  className="max-h-[82vh] w-full bg-black object-contain"
+                />
+              ) : (
+                <Image
+                  src={activeViewerItem.url}
+                  alt="Gallery preview"
+                  width={1600}
+                  height={1200}
+                  className="max-h-[82vh] h-auto w-full bg-black object-contain"
+                />
+              )}
+            </div>
+
+            {(activeViewerItem.guestName || activeViewerItem.caption) && (
+              <div className="border-t border-white/10 bg-slate-950/70 px-4 py-3">
+                {activeViewerItem.guestName && (
+                  <p className="text-sm font-semibold text-white sm:text-base">
+                    {activeViewerItem.guestName}
+                  </p>
+                )}
+                {activeViewerItem.caption && (
+                  <p className="mt-1 text-xs leading-5 text-slate-100 sm:text-sm">
+                    {activeViewerItem.caption}
+                  </p>
+                )}
+              </div>
             )}
           </div>
 
@@ -805,17 +809,6 @@ function CloseIcon() {
       <path
         fill="currentColor"
         d="M6.72 6.72a.75.75 0 0 1 1.06 0L12 10.94l4.22-4.22a.75.75 0 1 1 1.06 1.06L13.06 12l4.22 4.22a.75.75 0 1 1-1.06 1.06L12 13.06l-4.22 4.22a.75.75 0 1 1-1.06-1.06L10.94 12 6.72 7.78a.75.75 0 0 1 0-1.06"
-      />
-    </svg>
-  );
-}
-
-function CameraIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M9 5a2 2 0 0 1 1.6-.8h2.8A2 2 0 0 1 15 5l.6 1H18a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V9a3 3 0 0 1 3-3h2.4zm3 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8"
       />
     </svg>
   );

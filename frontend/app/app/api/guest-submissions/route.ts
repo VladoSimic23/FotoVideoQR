@@ -58,6 +58,8 @@ export async function GET(request: Request) {
         _createdAt: string;
         mediaKind?: "image" | "video";
         status?: string;
+        guestName?: string;
+        caption?: string;
         image?: { asset?: { url?: string } };
         video?: { asset?: { url?: string } };
       }>
@@ -67,6 +69,8 @@ export async function GET(request: Request) {
         _createdAt,
         mediaKind,
         status,
+        guestName,
+        caption,
         "image": image{asset->{url}},
         "video": video{asset->{url}}
       }`,
