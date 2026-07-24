@@ -89,6 +89,8 @@ export function GuestBooth({
   coupleNames: string;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const nativePhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const nativeVideoInputRef = useRef<HTMLInputElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -118,6 +120,13 @@ export function GuestBooth({
 
   const canRecordVideo = useMemo(
     () => typeof MediaRecorder !== "undefined",
+    [],
+  );
+  const canUseNativeCapture = useMemo(
+    () =>
+      typeof window !== "undefined" &&
+      typeof HTMLInputElement !== "undefined" &&
+      "capture" in HTMLInputElement.prototype,
     [],
   );
 
@@ -735,8 +744,87 @@ export function GuestBooth({
     void startRecording();
   }
 
+  function triggerNativeCapture(kind: CaptureMode) {
+    if (kind === "photo") {
+      nativePhotoInputRef.current?.click();
+      return;
+    }
+
+    nativeVideoInputRef.current?.click();
+  }
+
+  async function getVideoDurationFromFile(file: File) {
+    const url = URL.createObjectURL(file);
+
+    try {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.src = url;
+
+      const duration = await new Promise<number | undefined>((resolve) => {
+        video.onloadedmetadata = () => {
+          const rawDuration = Number.isFinite(video.duration)
+            ? video.duration
+            : undefined;
+          resolve(rawDuration ? Math.round(rawDuration) : undefined);
+        };
+        video.onerror = () => resolve(undefined);
+      });
+
+      return duration;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  async function handleNativeCaptureChange(
+    kind: CaptureMode,
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+
+    const previewUrl = URL.createObjectURL(file);
+    const durationSeconds =
+      kind === "video" ? await getVideoDurationFromFile(file) : undefined;
+
+    setCapturedMedia((current) => {
+      if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+      return {
+        kind,
+        file,
+        previewUrl,
+        durationSeconds,
+      };
+    });
+
+    setPublishError(null);
+    setIsCameraFullscreen(false);
+    setCaptureLabel(
+      kind === "photo" ? "Photo preview ready" : "Video preview ready",
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#07111f] text-slate-50">
+      <input
+        ref={nativePhotoInputRef}
+        type="file"
+        accept="image/*"
+        capture={cameraFacing}
+        className="sr-only"
+        onChange={(event) => void handleNativeCaptureChange("photo", event)}
+      />
+      <input
+        ref={nativeVideoInputRef}
+        type="file"
+        accept="video/*"
+        capture={cameraFacing}
+        className="sr-only"
+        onChange={(event) => void handleNativeCaptureChange("video", event)}
+      />
       <p className="sr-only" aria-live="polite">
         {captureLabel}
       </p>
@@ -917,6 +1005,17 @@ export function GuestBooth({
                   >
                     {isPublishing ? "Publishing..." : "Publish"}
                   </button>
+
+                  {canUseNativeCapture && (
+                    <button
+                      type="button"
+                      onClick={() => triggerNativeCapture(mode)}
+                      className="rounded-full border border-cyan-200/40 bg-cyan-300/20 px-5 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/30 disabled:opacity-50"
+                      disabled={isPublishing}
+                    >
+                      Use phone camera app
+                    </button>
+                  )}
                 </div>
                 {publishError && (
                   <p className="text-sm text-rose-300">{publishError}</p>
@@ -1091,6 +1190,18 @@ export function GuestBooth({
                 </span>
               </button>
 
+              {canUseNativeCapture && (
+                <button
+                  type="button"
+                  onClick={() => triggerNativeCapture(mode)}
+                  disabled={isPublishing}
+                  className="rounded-full border border-white/25 bg-black/40 p-3 text-white disabled:opacity-50"
+                  aria-label="Use native phone camera"
+                >
+                  <PhoneCameraIcon />
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setIsCameraFullscreen(false)}
@@ -1168,6 +1279,17 @@ export function GuestBooth({
         </div>
       )}
     </main>
+  );
+}
+
+function PhoneCameraIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M7 2.75A2.75 2.75 0 0 0 4.25 5.5v13A2.75 2.75 0 0 0 7 21.25h10A2.75 2.75 0 0 0 19.75 18.5v-13A2.75 2.75 0 0 0 17 2.75zm0 1.5h10c.69 0 1.25.56 1.25 1.25v13c0 .69-.56 1.25-1.25 1.25H7c-.69 0-1.25-.56-1.25-1.25v-13c0-.69.56-1.25 1.25-1.25M12 6.5a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5m0 1.5a2.25 2.25 0 1 1 0 4.5 2.25 2.25 0 0 1 0-4.5m-2.5 7.75a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5z"
+      />
+    </svg>
   );
 }
 
