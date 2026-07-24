@@ -3,75 +3,20 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type CaptureMode = "photo" | "video";
 type CameraFacing = "user" | "environment";
 
 type CapturedMedia = {
-  kind: CaptureMode;
   previewUrl: string;
   file: File;
-  durationSeconds?: number;
 };
 
 type PublishedItem = {
   id: string;
-  kind: CaptureMode;
+  kind: "photo" | "video";
   url: string;
 };
 
 const RECENT_REFRESH_MS = 15000;
-
-function getPreferredRecorderMimeType() {
-  if (typeof MediaRecorder === "undefined") return undefined;
-
-  const candidates = [
-    "video/webm;codecs=vp9",
-    "video/webm;codecs=vp8",
-    "video/webm",
-    "video/mp4",
-  ];
-
-  return candidates.find((candidate) =>
-    MediaRecorder.isTypeSupported(candidate),
-  );
-}
-
-function normalizeOrientationAngle(value: number) {
-  return ((value % 360) + 360) % 360;
-}
-
-function getDeviceOrientationSnapshot() {
-  if (typeof window === "undefined") {
-    return { isLandscape: false, angle: null as number | null };
-  }
-
-  let angle: number | null = null;
-
-  if (typeof window.screen?.orientation?.angle === "number") {
-    angle = normalizeOrientationAngle(window.screen.orientation.angle);
-  } else {
-    const legacyOrientation = (window as Window & { orientation?: number })
-      .orientation;
-    if (typeof legacyOrientation === "number") {
-      angle = normalizeOrientationAngle(legacyOrientation);
-    }
-  }
-
-  const viewport = window.visualViewport;
-  const viewportLandscape = viewport
-    ? viewport.width > viewport.height
-    : window.innerWidth > window.innerHeight;
-
-  if (angle === 90 || angle === 270) {
-    return { isLandscape: true, angle };
-  }
-
-  if (angle === 0 || angle === 180) {
-    return { isLandscape: false, angle };
-  }
-
-  return { isLandscape: viewportLandscape, angle };
-}
 
 export function GuestBooth({
   guestPath,
@@ -88,19 +33,10 @@ export function GuestBooth({
   title: string;
   coupleNames: string;
 }) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const nativePhotoInputRef = useRef<HTMLInputElement | null>(null);
-  const nativeVideoInputRef = useRef<HTMLInputElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
 
-  const [mode, setMode] = useState<CaptureMode>("photo");
   const [cameraFacing, setCameraFacing] = useState<CameraFacing>("user");
-  const [streamReady, setStreamReady] = useState(false);
   const [captureLabel, setCaptureLabel] = useState("Ready to capture");
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [guestName, setGuestName] = useState("");
   const [caption, setCaption] = useState("");
   const [capturedMedia, setCapturedMedia] = useState<CapturedMedia | null>(
@@ -112,16 +48,11 @@ export function GuestBooth({
   );
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
-  const [isCameraFullscreen, setIsCameraFullscreen] = useState(false);
   const [activeViewerIndex, setActiveViewerIndex] = useState<number | null>(
     null,
   );
   const touchStartXRef = useRef<number | null>(null);
 
-  const canRecordVideo = useMemo(
-    () => typeof MediaRecorder !== "undefined",
-    [],
-  );
   const canUseNativeCapture = useMemo(
     () =>
       typeof window !== "undefined" &&
@@ -129,8 +60,6 @@ export function GuestBooth({
       "capture" in HTMLInputElement.prototype,
     [],
   );
-
-  const shouldMirrorFrontCamera = cameraFacing === "user";
 
   const loadRecentPublished = useCallback(
     async (showLoading = true) => {
@@ -287,329 +216,12 @@ export function GuestBooth({
   }, [activeViewerIndex, publishedItems]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    let cancelled = false;
-
-    async function startStream() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: mode === "video",
-          video: {
-            facingMode: { ideal: cameraFacing },
-            width: { ideal: 1080 },
-            height: { ideal: 1920 },
-            aspectRatio: { ideal: 9 / 16 },
-          },
-        });
-
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-
-        streamRef.current = stream;
-        setStreamReady(true);
-        setCaptureLabel(
-          `Camera ready (${cameraFacing === "user" ? "front" : "back"})`,
-        );
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-      } catch {
-        setCaptureLabel("Camera permission needed");
-        setStreamReady(false);
-      }
-    }
-
-    void startStream();
-
-    return () => {
-      cancelled = true;
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    };
-  }, [mode, cameraFacing]);
-
-  useEffect(() => {
-    if (!isRecording) return;
-
-    const interval = window.setInterval(() => {
-      setRecordingSeconds((current) => {
-        if (current + 1 >= maxVideoSeconds) {
-          window.clearInterval(interval);
-          void stopRecording();
-          return maxVideoSeconds;
-        }
-
-        return current + 1;
-      });
-    }, 1000);
-
-    return () => window.clearInterval(interval);
-  }, [isRecording, maxVideoSeconds]);
-
-  useEffect(() => {
-    if (videoRef.current && streamRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-    }
-  }, [isCameraFullscreen]);
-
-  useEffect(() => {
     return () => {
       if (capturedMedia?.previewUrl) {
         URL.revokeObjectURL(capturedMedia.previewUrl);
       }
     };
   }, [capturedMedia]);
-
-  async function capturePhoto() {
-    const video = videoRef.current;
-    if (!video) return;
-    const orientation = getDeviceOrientationSnapshot();
-    const sourceWidth = video.videoWidth || 1280;
-    const sourceHeight = video.videoHeight || 720;
-    const shouldRotateToPortrait = sourceWidth > sourceHeight;
-    const useClockwiseQuarterTurn = orientation.angle !== 270;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = shouldRotateToPortrait ? sourceHeight : sourceWidth;
-    canvas.height = shouldRotateToPortrait ? sourceWidth : sourceHeight;
-    const context = canvas.getContext("2d");
-    if (!context) return;
-
-    if (shouldRotateToPortrait) {
-      context.save();
-      if (useClockwiseQuarterTurn) {
-        context.translate(canvas.width, 0);
-        context.rotate(Math.PI / 2);
-      } else {
-        context.translate(0, canvas.height);
-        context.rotate(-Math.PI / 2);
-      }
-      context.drawImage(video, 0, 0, sourceWidth, sourceHeight);
-      context.restore();
-    } else {
-      context.drawImage(video, 0, 0, sourceWidth, sourceHeight);
-    }
-
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", 0.94),
-    );
-    if (!blob) return;
-
-    const file = new File([blob], `wedding-photo-${Date.now()}.jpg`, {
-      type: "image/jpeg",
-    });
-    const previewUrl = URL.createObjectURL(file);
-
-    setCapturedMedia((current) => {
-      if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
-      return {
-        kind: "photo",
-        file,
-        previewUrl,
-      };
-    });
-
-    setPublishError(null);
-    setCaptureLabel("Photo preview ready");
-  }
-
-  async function normalizeVideoToPortrait(
-    inputBlob: Blob,
-    orientationAtRecordingStart: { isLandscape: boolean; angle: number | null },
-  ) {
-    if (typeof document === "undefined") return inputBlob;
-
-    const captureStreamSupported =
-      typeof HTMLCanvasElement !== "undefined" &&
-      typeof HTMLCanvasElement.prototype.captureStream === "function";
-
-    if (!captureStreamSupported || typeof MediaRecorder === "undefined") {
-      return inputBlob;
-    }
-
-    const inputUrl = URL.createObjectURL(inputBlob);
-
-    try {
-      const sourceVideo = document.createElement("video");
-      sourceVideo.src = inputUrl;
-      sourceVideo.muted = true;
-      sourceVideo.playsInline = true;
-      sourceVideo.preload = "auto";
-
-      await new Promise<void>((resolve, reject) => {
-        sourceVideo.onloadedmetadata = () => resolve();
-        sourceVideo.onerror = () =>
-          reject(new Error("Video metadata load failed"));
-      });
-
-      const sourceWidth = sourceVideo.videoWidth || 0;
-      const sourceHeight = sourceVideo.videoHeight || 0;
-
-      if (!sourceWidth || !sourceHeight) {
-        return inputBlob;
-      }
-
-      const isLandscapeSource = sourceWidth > sourceHeight;
-      const shouldRotateToPortrait =
-        isLandscapeSource ||
-        (orientationAtRecordingStart.isLandscape &&
-          sourceWidth === sourceHeight);
-      const useClockwiseQuarterTurn = orientationAtRecordingStart.angle !== 270;
-
-      const canvas = document.createElement("canvas");
-      canvas.width = shouldRotateToPortrait ? sourceHeight : sourceWidth;
-      canvas.height = shouldRotateToPortrait ? sourceWidth : sourceHeight;
-      const context = canvas.getContext("2d");
-      if (!context) return inputBlob;
-
-      const outputStream = canvas.captureStream(30);
-      const mimeTypeCandidates = [
-        "video/webm;codecs=vp9",
-        "video/webm;codecs=vp8",
-        "video/webm",
-      ];
-      const selectedMimeType =
-        mimeTypeCandidates.find((candidate) =>
-          MediaRecorder.isTypeSupported(candidate),
-        ) ?? "video/webm";
-
-      const recordedChunks: BlobPart[] = [];
-
-      const recorder = new MediaRecorder(outputStream, {
-        mimeType: selectedMimeType,
-      });
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          recordedChunks.push(event.data);
-        }
-      };
-
-      let rafId = 0;
-      const drawFrame = () => {
-        context.clearRect(0, 0, canvas.width, canvas.height);
-
-        if (shouldRotateToPortrait) {
-          context.save();
-          if (useClockwiseQuarterTurn) {
-            context.translate(canvas.width, 0);
-            context.rotate(Math.PI / 2);
-          } else {
-            context.translate(0, canvas.height);
-            context.rotate(-Math.PI / 2);
-          }
-          context.drawImage(sourceVideo, 0, 0, sourceWidth, sourceHeight);
-          context.restore();
-        } else {
-          context.drawImage(sourceVideo, 0, 0, sourceWidth, sourceHeight);
-        }
-
-        if (!sourceVideo.paused && !sourceVideo.ended) {
-          rafId = requestAnimationFrame(drawFrame);
-        }
-      };
-
-      const convertedBlob = await new Promise<Blob>((resolve, reject) => {
-        recorder.onerror = () => reject(new Error("Video conversion failed"));
-        recorder.onstop = () => {
-          const outputType = selectedMimeType.split(";")[0] || "video/webm";
-          resolve(new Blob(recordedChunks, { type: outputType }));
-        };
-
-        sourceVideo.onended = () => {
-          if (rafId) cancelAnimationFrame(rafId);
-          if (recorder.state !== "inactive") recorder.stop();
-        };
-
-        recorder.start();
-        rafId = requestAnimationFrame(drawFrame);
-
-        void sourceVideo.play().catch(() => {
-          if (rafId) cancelAnimationFrame(rafId);
-          if (recorder.state !== "inactive") recorder.stop();
-          reject(new Error("Video playback failed during conversion"));
-        });
-      });
-
-      outputStream.getTracks().forEach((track) => track.stop());
-      return convertedBlob;
-    } catch {
-      return inputBlob;
-    } finally {
-      URL.revokeObjectURL(inputUrl);
-    }
-  }
-
-  async function startRecording() {
-    const stream = streamRef.current;
-    if (!stream || !canRecordVideo) return;
-    const orientationAtRecordingStart = getDeviceOrientationSnapshot();
-
-    chunksRef.current = [];
-    const mimeType = getPreferredRecorderMimeType();
-    const recorder = mimeType
-      ? new MediaRecorder(stream, { mimeType })
-      : new MediaRecorder(stream);
-    recorderRef.current = recorder;
-
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        chunksRef.current.push(event.data);
-      }
-    };
-
-    recorder.onstop = () => {
-      void (async () => {
-        const recordedBlob = new Blob(chunksRef.current, {
-          type: recorder.mimeType || mimeType || "video/webm",
-        });
-        setCaptureLabel("Processing video to portrait...");
-
-        const processedBlob = await normalizeVideoToPortrait(
-          recordedBlob,
-          orientationAtRecordingStart,
-        );
-        const file = new File(
-          [processedBlob],
-          `wedding-video-${Date.now()}.webm`,
-          {
-            type: processedBlob.type || "video/webm",
-          },
-        );
-        const previewUrl = URL.createObjectURL(file);
-
-        setCapturedMedia((current) => {
-          if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
-          return {
-            kind: "video",
-            file,
-            previewUrl,
-            durationSeconds: recordingSeconds || undefined,
-          };
-        });
-
-        setCaptureLabel("Video preview ready");
-        setIsRecording(false);
-        setRecordingSeconds(0);
-        chunksRef.current = [];
-        setPublishError(null);
-      })();
-    };
-
-    recorder.start();
-    setIsRecording(true);
-    setRecordingSeconds(0);
-    setCaptureLabel(`Recording up to ${maxVideoSeconds} seconds`);
-  }
-
-  async function stopRecording() {
-    const recorder = recorderRef.current;
-    if (!recorder || recorder.state === "inactive") return;
-    recorder.stop();
-  }
 
   async function publishCurrent() {
     if (!capturedMedia) return;
@@ -620,16 +232,10 @@ export function GuestBooth({
     try {
       const formData = new FormData();
       formData.append("eventSlug", eventSlug);
-      formData.append(
-        "mediaKind",
-        capturedMedia.kind === "video" ? "video" : "image",
-      );
+      formData.append("mediaKind", "image");
       formData.append("guestName", guestName.trim());
       formData.append("caption", caption.trim());
-      formData.append(
-        "durationSeconds",
-        `${capturedMedia.durationSeconds ?? 0}`,
-      );
+      formData.append("durationSeconds", "0");
       formData.append("file", capturedMedia.file);
 
       const response = await fetch("/api/guest-submissions", {
@@ -637,21 +243,45 @@ export function GuestBooth({
         body: formData,
       });
 
-      const result = (await response.json()) as {
+      const responseContentType = response.headers.get("content-type") ?? "";
+      let result: {
         ok: boolean;
         error?: string;
         submissionId?: string;
         assetUrl?: string;
         status?: string;
-      };
+      } | null = null;
 
-      if (!response.ok || !result.ok) {
+      if (responseContentType.includes("application/json")) {
+        result = (await response.json()) as {
+          ok: boolean;
+          error?: string;
+          submissionId?: string;
+          assetUrl?: string;
+          status?: string;
+        };
+      }
+
+      if (!response.ok || !result?.ok) {
+        if (!result) {
+          const rawError = await response.text();
+          const trimmedError = rawError.trim();
+          if (
+            response.status === 413 ||
+            /entity too large|payload too large/i.test(trimmedError)
+          ) {
+            throw new Error("File is too large for upload.");
+          }
+
+          throw new Error(trimmedError || "Failed to publish submission.");
+        }
+
         throw new Error(result.error ?? "Failed to publish submission.");
       }
 
       const nextItem: PublishedItem = {
         id: result.submissionId ?? `${Date.now()}`,
-        kind: capturedMedia.kind,
+        kind: "photo",
         url: result.assetUrl ?? capturedMedia.previewUrl,
       };
 
@@ -730,81 +360,30 @@ export function GuestBooth({
     touchStartXRef.current = null;
   }
 
-  function handlePrimaryCaptureAction() {
-    if (mode === "photo") {
-      void capturePhoto();
-      return;
-    }
-
-    if (isRecording) {
-      void stopRecording();
-      return;
-    }
-
-    void startRecording();
+  function triggerNativeCapture() {
+    nativePhotoInputRef.current?.click();
   }
 
-  function triggerNativeCapture(kind: CaptureMode) {
-    if (kind === "photo") {
-      nativePhotoInputRef.current?.click();
-      return;
-    }
-
-    nativeVideoInputRef.current?.click();
-  }
-
-  async function getVideoDurationFromFile(file: File) {
-    const url = URL.createObjectURL(file);
-
-    try {
-      const video = document.createElement("video");
-      video.preload = "metadata";
-      video.src = url;
-
-      const duration = await new Promise<number | undefined>((resolve) => {
-        video.onloadedmetadata = () => {
-          const rawDuration = Number.isFinite(video.duration)
-            ? video.duration
-            : undefined;
-          resolve(rawDuration ? Math.round(rawDuration) : undefined);
-        };
-        video.onerror = () => resolve(undefined);
-      });
-
-      return duration;
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  }
-
-  async function handleNativeCaptureChange(
-    kind: CaptureMode,
+  function handleNativeCaptureChange(
     event: React.ChangeEvent<HTMLInputElement>,
   ) {
-    const file = event.target.files?.[0];
+    const selectedFile = event.target.files?.[0];
     event.target.value = "";
 
-    if (!file) return;
+    if (!selectedFile) return;
 
-    const previewUrl = URL.createObjectURL(file);
-    const durationSeconds =
-      kind === "video" ? await getVideoDurationFromFile(file) : undefined;
+    const previewUrl = URL.createObjectURL(selectedFile);
 
     setCapturedMedia((current) => {
       if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
       return {
-        kind,
-        file,
+        file: selectedFile,
         previewUrl,
-        durationSeconds,
       };
     });
 
     setPublishError(null);
-    setIsCameraFullscreen(false);
-    setCaptureLabel(
-      kind === "photo" ? "Photo preview ready" : "Video preview ready",
-    );
+    setCaptureLabel("Photo preview ready");
   }
 
   return (
@@ -815,21 +394,14 @@ export function GuestBooth({
         accept="image/*"
         capture={cameraFacing}
         className="sr-only"
-        onChange={(event) => void handleNativeCaptureChange("photo", event)}
-      />
-      <input
-        ref={nativeVideoInputRef}
-        type="file"
-        accept="video/*"
-        capture={cameraFacing}
-        className="sr-only"
-        onChange={(event) => void handleNativeCaptureChange("video", event)}
+        onChange={handleNativeCaptureChange}
       />
       <p className="sr-only" aria-live="polite">
         {captureLabel}
       </p>
       <p className="sr-only">
-        Guest route: {guestPath}. Dashboard route: {dashboardPath}.
+        Guest route: {guestPath}. Dashboard route: {dashboardPath}. Max video
+        config: {maxVideoSeconds}.
       </p>
       <section className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-6 py-8 sm:px-10 lg:px-12">
         <header className="rounded-[2rem] border border-white/10 bg-white/5 px-6 py-5 backdrop-blur-xl">
@@ -842,45 +414,25 @@ export function GuestBooth({
                 {coupleNames}
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-                {title} · Guests can shoot a photo or a short video, preview it,
-                delete it, or publish it to the couple gallery.
+                {title} · Guests can shoot a photo, preview it, delete it, or
+                publish it to the couple gallery.
               </p>
             </div>
             <button
               type="button"
-              onClick={() => setIsCameraFullscreen(true)}
+              onClick={triggerNativeCapture}
+              disabled={isPublishing || !canUseNativeCapture}
               className="inline-flex items-center gap-2 self-start rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
             >
               <CameraIcon />
-              Open camera
+              Use phone camera
             </button>
-            {/* <div className="flex flex-wrap gap-3 text-sm">
-              <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2">
-                {captureLabel}
-              </span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2">
-                Max video {maxVideoSeconds}s
-              </span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2">
-                {streamReady ? "Camera ready" : "Waiting for camera"}
-              </span>
-            </div> */}
           </div>
         </header>
 
         <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
           <section className="rounded-[2rem] border border-white/10 bg-white/5 p-4 shadow-2xl shadow-black/20 backdrop-blur-xl sm:p-6">
             <div className="flex flex-wrap gap-3 border-b border-white/10 pb-4">
-              {(["photo", "video"] as const).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setMode(value)}
-                  className={`rounded-full px-4 py-2 text-sm font-medium transition ${mode === value ? "bg-white text-slate-950" : "border border-white/10 bg-white/5 text-white hover:bg-white/10"}`}
-                >
-                  {value === "photo" ? "Photo" : "Video"}
-                </button>
-              ))}
               {(
                 [
                   { value: "user", label: "Front camera" },
@@ -891,7 +443,7 @@ export function GuestBooth({
                   key={camera.value}
                   type="button"
                   onClick={() => setCameraFacing(camera.value)}
-                  disabled={isRecording || isPublishing}
+                  disabled={isPublishing}
                   className={`rounded-full px-4 py-2 text-sm font-medium transition ${cameraFacing === camera.value ? "bg-cyan-300 text-slate-950" : "border border-white/10 bg-white/5 text-white hover:bg-white/10"} disabled:opacity-50`}
                 >
                   {camera.label}
@@ -899,85 +451,46 @@ export function GuestBooth({
               ))}
               <button
                 type="button"
-                onClick={() => setIsCameraFullscreen(true)}
+                onClick={triggerNativeCapture}
+                disabled={isPublishing || !canUseNativeCapture}
                 className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10"
               >
-                Full screen camera
+                Take photo
               </button>
             </div>
 
             <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_0.8fr]">
               <div className="space-y-4">
                 <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-slate-950/80">
-                  {isCameraFullscreen ? (
-                    <div className="flex h-[420px] w-full items-center justify-center bg-slate-900/80 text-sm text-slate-300">
-                      Camera is open in full-screen mode.
-                    </div>
-                  ) : (
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      muted
-                      playsInline
-                      style={{
-                        transform: shouldMirrorFrontCamera
-                          ? "rotateY(-180deg)"
-                          : "none",
-                      }}
-                      className={`h-[420px] w-full object-cover ${capturedMedia ? "opacity-25" : "opacity-100"}`}
-                    />
-                  )}
                   {capturedMedia && (
-                    <div className="absolute inset-0 flex items-center justify-center p-4">
-                      {capturedMedia.kind === "video" ? (
-                        <video
-                          src={capturedMedia.previewUrl}
-                          controls
-                          playsInline
-                          className="max-h-[420px] w-full rounded-[1.25rem] object-cover shadow-2xl"
-                        />
-                      ) : (
-                        <Image
-                          src={capturedMedia.previewUrl}
-                          alt="Captured preview"
-                          width={1280}
-                          height={720}
-                          unoptimized
-                          className="max-h-[420px] w-full rounded-[1.25rem] object-cover shadow-2xl"
-                        />
-                      )}
+                    <div className="flex min-h-[420px] items-center justify-center p-4">
+                      <Image
+                        src={capturedMedia.previewUrl}
+                        alt="Captured preview"
+                        width={1280}
+                        height={720}
+                        unoptimized
+                        className="max-h-[420px] w-full rounded-[1.25rem] object-cover shadow-2xl"
+                      />
+                    </div>
+                  )}
+                  {!capturedMedia && (
+                    <div className="flex h-[420px] items-center justify-center px-6 text-center text-sm text-slate-300">
+                      Tap Take photo to open your phone camera and preview the
+                      shot here.
                     </div>
                   )}
                 </div>
 
                 <div className="flex flex-wrap gap-3">
-                  {mode === "photo" ? (
-                    <button
-                      type="button"
-                      onClick={capturePhoto}
-                      className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-50 disabled:opacity-50"
-                      disabled={!streamReady || isPublishing}
-                    >
-                      Capture photo
-                    </button>
-                  ) : isRecording ? (
-                    <button
-                      type="button"
-                      onClick={stopRecording}
-                      className="rounded-full bg-rose-400 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rose-300"
-                    >
-                      Stop recording ({recordingSeconds}s)
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => void startRecording()}
-                      className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-50 disabled:opacity-50"
-                      disabled={!streamReady || !canRecordVideo || isPublishing}
-                    >
-                      Start video
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={triggerNativeCapture}
+                    className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-50 disabled:opacity-50"
+                    disabled={isPublishing || !canUseNativeCapture}
+                  >
+                    Use phone camera
+                  </button>
 
                   <button
                     type="button"
@@ -1005,27 +518,6 @@ export function GuestBooth({
                   >
                     {isPublishing ? "Publishing..." : "Publish"}
                   </button>
-
-                  {canUseNativeCapture && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => triggerNativeCapture("photo")}
-                        className="rounded-full border border-cyan-200/40 bg-cyan-300/20 px-5 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/30 disabled:opacity-50"
-                        disabled={isPublishing}
-                      >
-                        Use phone camera (photo)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => triggerNativeCapture("video")}
-                        className="rounded-full border border-cyan-200/40 bg-cyan-300/20 px-5 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/30 disabled:opacity-50"
-                        disabled={isPublishing}
-                      >
-                        Use phone camera (video)
-                      </button>
-                    </>
-                  )}
                 </div>
                 {publishError && (
                   <p className="text-sm text-rose-300">{publishError}</p>
@@ -1057,16 +549,6 @@ export function GuestBooth({
           </section>
 
           <section className="rounded-[2rem] border border-white/10 bg-white/5 p-3 backdrop-blur-xl sm:p-6">
-            {/* <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <div>
-                <p className="text-sm text-slate-300">Recent published</p>
-                <h2 className="mt-1 text-2xl font-semibold text-white">
-                  Your last shares
-                </h2>
-              </div>
-           
-            </div> */}
-
             <div className="mt-5 space-y-4">
               {publishedItems.length > 0 ? (
                 <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
@@ -1115,115 +597,6 @@ export function GuestBooth({
           </section>
         </div>
       </section>
-
-      {isCameraFullscreen && (
-        <div
-          className="fixed inset-0 z-40 bg-black"
-          role="dialog"
-          aria-modal="true"
-        >
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            style={{
-              transform: shouldMirrorFrontCamera ? "rotateY(-180deg)" : "none",
-            }}
-            className="h-full w-full object-cover"
-          />
-
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/75 to-transparent" />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black/85 to-transparent" />
-
-          <button
-            type="button"
-            onClick={() => setIsCameraFullscreen(false)}
-            className="absolute right-4 top-4 rounded-full border border-white/25 bg-black/40 p-2 text-white"
-            aria-label="Close full screen camera"
-          >
-            <CloseIcon />
-          </button>
-
-          <div className="absolute inset-x-0 bottom-0 z-10 px-4 pb-8 pt-6">
-            <div className="mx-auto flex max-w-md items-center justify-center gap-3 rounded-full border border-white/20 bg-black/45 p-1.5 backdrop-blur">
-              {(["photo", "video"] as const).map((value) => (
-                <button
-                  key={`full-${value}`}
-                  type="button"
-                  onClick={() => setMode(value)}
-                  className={`rounded-full px-5 py-2 text-sm font-medium transition ${mode === value ? "bg-white text-slate-950" : "text-white/85 hover:bg-white/15"}`}
-                >
-                  {value === "photo" ? "Photo" : "Video"}
-                </button>
-              ))}
-            </div>
-
-            <div className="mx-auto mt-5 flex max-w-md items-center justify-between">
-              <button
-                type="button"
-                onClick={() =>
-                  setCameraFacing((current) =>
-                    current === "user" ? "environment" : "user",
-                  )
-                }
-                disabled={isRecording || isPublishing}
-                className="rounded-full border border-white/25 bg-black/40 p-3 text-white disabled:opacity-50"
-                aria-label="Switch camera"
-              >
-                <SwitchCameraIcon />
-              </button>
-
-              <button
-                type="button"
-                onClick={handlePrimaryCaptureAction}
-                disabled={
-                  !streamReady ||
-                  isPublishing ||
-                  (mode === "video" && !canRecordVideo)
-                }
-                className={`h-20 w-20 rounded-full border-4 border-white bg-white/95 transition disabled:opacity-50 ${isRecording ? "scale-95 bg-rose-400" : "hover:scale-[1.03]"}`}
-                aria-label={
-                  mode === "photo"
-                    ? "Capture photo"
-                    : isRecording
-                      ? "Stop recording"
-                      : "Start recording"
-                }
-              >
-                <span className="sr-only">
-                  {mode === "photo"
-                    ? "Capture photo"
-                    : isRecording
-                      ? "Stop recording"
-                      : "Start recording"}
-                </span>
-              </button>
-
-              {canUseNativeCapture && (
-                <button
-                  type="button"
-                  onClick={() => triggerNativeCapture("video")}
-                  disabled={isPublishing}
-                  className="rounded-full border border-white/25 bg-black/40 p-3 text-white disabled:opacity-50"
-                  aria-label="Use native phone camera for video"
-                >
-                  <PhoneCameraIcon />
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={() => setIsCameraFullscreen(false)}
-                className="rounded-full border border-white/25 bg-black/40 p-3 text-white"
-                aria-label="Close camera"
-              >
-                <GalleryIcon />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {activeViewerItem && (
         <div
@@ -1292,17 +665,6 @@ export function GuestBooth({
   );
 }
 
-function PhoneCameraIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M7 2.75A2.75 2.75 0 0 0 4.25 5.5v13A2.75 2.75 0 0 0 7 21.25h10A2.75 2.75 0 0 0 19.75 18.5v-13A2.75 2.75 0 0 0 17 2.75zm0 1.5h10c.69 0 1.25.56 1.25 1.25v13c0 .69-.56 1.25-1.25 1.25H7c-.69 0-1.25-.56-1.25-1.25v-13c0-.69.56-1.25 1.25-1.25M12 6.5a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5m0 1.5a2.25 2.25 0 1 1 0 4.5 2.25 2.25 0 0 1 0-4.5m-2.5 7.75a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5z"
-      />
-    </svg>
-  );
-}
-
 function ImageIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
@@ -1364,28 +726,6 @@ function CameraIcon() {
       <path
         fill="currentColor"
         d="M9 5a2 2 0 0 1 1.6-.8h2.8A2 2 0 0 1 15 5l.6 1H18a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V9a3 3 0 0 1 3-3h2.4zm3 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8"
-      />
-    </svg>
-  );
-}
-
-function SwitchCameraIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M9 4a2 2 0 0 0-1.6.8L6.8 6H6a3 3 0 0 0-3 3v6a3 3 0 0 0 3 3h.8l.6 1.2A2 2 0 0 0 9 20h6a2 2 0 0 0 1.6-.8l.6-1.2h.8a3 3 0 0 0 3-3V9a3 3 0 0 0-3-3h-.8l-.6-1.2A2 2 0 0 0 15 4zm5.53 6.47a.75.75 0 0 1 1.06 0l1.5 1.5a.75.75 0 0 1 0 1.06l-1.5 1.5a.75.75 0 1 1-1.06-1.06l.22-.22H9.25a.75.75 0 0 1 0-1.5h5.5l-.22-.22a.75.75 0 0 1 0-1.06m-6.12 3a.75.75 0 0 1 1.06 0 .75.75 0 0 1 0 1.06l-.22.22h5.5a.75.75 0 0 1 0 1.5h-5.5l.22.22a.75.75 0 0 1-1.06 1.06l-1.5-1.5a.75.75 0 0 1 0-1.06z"
-      />
-    </svg>
-  );
-}
-
-function GalleryIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5zm2.5-.5a.5.5 0 0 0-.5.5v7.38l2.6-2.6a1.4 1.4 0 0 1 1.98 0l1.2 1.2 2.6-2.59a1.4 1.4 0 0 1 1.98 0L18 9.58V5.5a.5.5 0 0 0-.5-.5z"
       />
     </svg>
   );
