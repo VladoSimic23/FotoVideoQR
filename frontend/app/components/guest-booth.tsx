@@ -302,14 +302,23 @@ export function GuestBooth({
   async function capturePhoto() {
     const video = videoRef.current;
     if (!video) return;
+    const sourceWidth = video.videoWidth || 1280;
+    const sourceHeight = video.videoHeight || 720;
+    const shouldSaveAsPortrait = sourceWidth > sourceHeight;
 
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    canvas.width = shouldSaveAsPortrait ? sourceHeight : sourceWidth;
+    canvas.height = shouldSaveAsPortrait ? sourceWidth : sourceHeight;
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    if (shouldSaveAsPortrait) {
+      context.translate(canvas.width, 0);
+      context.rotate(Math.PI / 2);
+      context.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+    } else {
+      context.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+    }
 
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, "image/jpeg", 0.94),
@@ -334,6 +343,113 @@ export function GuestBooth({
     setCaptureLabel("Photo preview ready");
   }
 
+  async function normalizeVideoToPortrait(inputBlob: Blob) {
+    if (typeof document === "undefined") return inputBlob;
+
+    const captureStreamSupported =
+      typeof HTMLCanvasElement !== "undefined" &&
+      typeof HTMLCanvasElement.prototype.captureStream === "function";
+
+    if (!captureStreamSupported || typeof MediaRecorder === "undefined") {
+      return inputBlob;
+    }
+
+    const inputUrl = URL.createObjectURL(inputBlob);
+
+    try {
+      const sourceVideo = document.createElement("video");
+      sourceVideo.src = inputUrl;
+      sourceVideo.muted = true;
+      sourceVideo.playsInline = true;
+      sourceVideo.preload = "auto";
+
+      await new Promise<void>((resolve, reject) => {
+        sourceVideo.onloadedmetadata = () => resolve();
+        sourceVideo.onerror = () =>
+          reject(new Error("Video metadata load failed"));
+      });
+
+      const sourceWidth = sourceVideo.videoWidth || 0;
+      const sourceHeight = sourceVideo.videoHeight || 0;
+
+      if (!sourceWidth || !sourceHeight || sourceWidth <= sourceHeight) {
+        return inputBlob;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = sourceHeight;
+      canvas.height = sourceWidth;
+      const context = canvas.getContext("2d");
+      if (!context) return inputBlob;
+
+      const outputStream = canvas.captureStream(30);
+      const mimeTypeCandidates = [
+        "video/webm;codecs=vp9",
+        "video/webm;codecs=vp8",
+        "video/webm",
+      ];
+      const selectedMimeType =
+        mimeTypeCandidates.find((candidate) =>
+          MediaRecorder.isTypeSupported(candidate),
+        ) ?? "video/webm";
+
+      const recordedChunks: BlobPart[] = [];
+
+      const recorder = new MediaRecorder(outputStream, {
+        mimeType: selectedMimeType,
+      });
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordedChunks.push(event.data);
+        }
+      };
+
+      let rafId = 0;
+      const drawFrame = () => {
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.save();
+        context.translate(canvas.width, 0);
+        context.rotate(Math.PI / 2);
+        context.drawImage(sourceVideo, 0, 0, sourceWidth, sourceHeight);
+        context.restore();
+
+        if (!sourceVideo.paused && !sourceVideo.ended) {
+          rafId = requestAnimationFrame(drawFrame);
+        }
+      };
+
+      const convertedBlob = await new Promise<Blob>((resolve, reject) => {
+        recorder.onerror = () => reject(new Error("Video conversion failed"));
+        recorder.onstop = () => {
+          const outputType = selectedMimeType.split(";")[0] || "video/webm";
+          resolve(new Blob(recordedChunks, { type: outputType }));
+        };
+
+        sourceVideo.onended = () => {
+          if (rafId) cancelAnimationFrame(rafId);
+          if (recorder.state !== "inactive") recorder.stop();
+        };
+
+        recorder.start();
+        rafId = requestAnimationFrame(drawFrame);
+
+        void sourceVideo.play().catch(() => {
+          if (rafId) cancelAnimationFrame(rafId);
+          if (recorder.state !== "inactive") recorder.stop();
+          reject(new Error("Video playback failed during conversion"));
+        });
+      });
+
+      outputStream.getTracks().forEach((track) => track.stop());
+      return convertedBlob;
+    } catch {
+      return inputBlob;
+    } finally {
+      URL.revokeObjectURL(inputUrl);
+    }
+  }
+
   async function startRecording() {
     const stream = streamRef.current;
     if (!stream || !canRecordVideo) return;
@@ -349,27 +465,38 @@ export function GuestBooth({
     };
 
     recorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: "video/webm" });
-      const file = new File([blob], `wedding-video-${Date.now()}.webm`, {
-        type: "video/webm",
-      });
-      const previewUrl = URL.createObjectURL(file);
+      void (async () => {
+        const recordedBlob = new Blob(chunksRef.current, {
+          type: "video/webm",
+        });
+        setCaptureLabel("Processing video...");
 
-      setCapturedMedia((current) => {
-        if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
-        return {
-          kind: "video",
-          file,
-          previewUrl,
-          durationSeconds: recordingSeconds || undefined,
-        };
-      });
+        const processedBlob = await normalizeVideoToPortrait(recordedBlob);
+        const file = new File(
+          [processedBlob],
+          `wedding-video-${Date.now()}.webm`,
+          {
+            type: processedBlob.type || "video/webm",
+          },
+        );
+        const previewUrl = URL.createObjectURL(file);
 
-      setCaptureLabel("Video preview ready");
-      setIsRecording(false);
-      setRecordingSeconds(0);
-      chunksRef.current = [];
-      setPublishError(null);
+        setCapturedMedia((current) => {
+          if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+          return {
+            kind: "video",
+            file,
+            previewUrl,
+            durationSeconds: recordingSeconds || undefined,
+          };
+        });
+
+        setCaptureLabel("Video preview ready");
+        setIsRecording(false);
+        setRecordingSeconds(0);
+        chunksRef.current = [];
+        setPublishError(null);
+      })();
     };
 
     recorder.start();
