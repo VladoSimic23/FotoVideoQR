@@ -6,8 +6,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 type CameraFacing = "user" | "environment";
 
 type CapturedMedia = {
+  kind: "photo" | "video";
   previewUrl: string;
   file: File;
+  durationSeconds?: number;
 };
 
 type PublishedItem = {
@@ -34,6 +36,7 @@ export function GuestBooth({
   coupleNames: string;
 }) {
   const nativePhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const nativeVideoInputRef = useRef<HTMLInputElement | null>(null);
 
   const [cameraFacing, setCameraFacing] = useState<CameraFacing>("user");
   const [captureLabel, setCaptureLabel] = useState("Ready to capture");
@@ -232,10 +235,16 @@ export function GuestBooth({
     try {
       const formData = new FormData();
       formData.append("eventSlug", eventSlug);
-      formData.append("mediaKind", "image");
+      formData.append(
+        "mediaKind",
+        capturedMedia.kind === "video" ? "video" : "image",
+      );
       formData.append("guestName", guestName.trim());
       formData.append("caption", caption.trim());
-      formData.append("durationSeconds", "0");
+      formData.append(
+        "durationSeconds",
+        `${capturedMedia.durationSeconds ?? 0}`,
+      );
       formData.append("file", capturedMedia.file);
 
       const response = await fetch("/api/guest-submissions", {
@@ -281,7 +290,7 @@ export function GuestBooth({
 
       const nextItem: PublishedItem = {
         id: result.submissionId ?? `${Date.now()}`,
-        kind: "photo",
+        kind: capturedMedia.kind,
         url: result.assetUrl ?? capturedMedia.previewUrl,
       };
 
@@ -360,11 +369,40 @@ export function GuestBooth({
     touchStartXRef.current = null;
   }
 
-  function triggerNativeCapture() {
+  function triggerNativePhotoCapture() {
     nativePhotoInputRef.current?.click();
   }
 
-  function handleNativeCaptureChange(
+  function triggerNativeVideoCapture() {
+    nativeVideoInputRef.current?.click();
+  }
+
+  async function getVideoDurationFromFile(file: File) {
+    const url = URL.createObjectURL(file);
+
+    try {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.src = url;
+
+      const duration = await new Promise<number | undefined>((resolve) => {
+        video.onloadedmetadata = () => {
+          const rawDuration = Number.isFinite(video.duration)
+            ? video.duration
+            : undefined;
+          resolve(rawDuration ? Math.round(rawDuration) : undefined);
+        };
+        video.onerror = () => resolve(undefined);
+      });
+
+      return duration;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  async function handleNativeCaptureChange(
+    kind: "photo" | "video",
     event: React.ChangeEvent<HTMLInputElement>,
   ) {
     const selectedFile = event.target.files?.[0];
@@ -373,17 +411,25 @@ export function GuestBooth({
     if (!selectedFile) return;
 
     const previewUrl = URL.createObjectURL(selectedFile);
+    const durationSeconds =
+      kind === "video"
+        ? await getVideoDurationFromFile(selectedFile)
+        : undefined;
 
     setCapturedMedia((current) => {
       if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
       return {
+        kind,
         file: selectedFile,
         previewUrl,
+        durationSeconds,
       };
     });
 
     setPublishError(null);
-    setCaptureLabel("Photo preview ready");
+    setCaptureLabel(
+      kind === "photo" ? "Photo preview ready" : "Video preview ready",
+    );
   }
 
   return (
@@ -394,7 +440,15 @@ export function GuestBooth({
         accept="image/*"
         capture={cameraFacing}
         className="sr-only"
-        onChange={handleNativeCaptureChange}
+        onChange={(event) => void handleNativeCaptureChange("photo", event)}
+      />
+      <input
+        ref={nativeVideoInputRef}
+        type="file"
+        accept="video/*"
+        capture={cameraFacing}
+        className="sr-only"
+        onChange={(event) => void handleNativeCaptureChange("video", event)}
       />
       <p className="sr-only" aria-live="polite">
         {captureLabel}
@@ -414,18 +468,18 @@ export function GuestBooth({
                 {coupleNames}
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-                {title} · Guests can shoot a photo, preview it, delete it, or
-                publish it to the couple gallery.
+                {title} · Guests can shoot a photo or short video, preview it,
+                delete it, or publish it to the couple gallery.
               </p>
             </div>
             <button
               type="button"
-              onClick={triggerNativeCapture}
+              onClick={triggerNativePhotoCapture}
               disabled={isPublishing || !canUseNativeCapture}
               className="inline-flex items-center gap-2 self-start rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
             >
               <CameraIcon />
-              Use phone camera
+              Use phone camera (photo)
             </button>
           </div>
         </header>
@@ -451,11 +505,19 @@ export function GuestBooth({
               ))}
               <button
                 type="button"
-                onClick={triggerNativeCapture}
+                onClick={triggerNativePhotoCapture}
                 disabled={isPublishing || !canUseNativeCapture}
                 className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10"
               >
-                Take photo
+                Use phone camera (photo)
+              </button>
+              <button
+                type="button"
+                onClick={triggerNativeVideoCapture}
+                disabled={isPublishing || !canUseNativeCapture}
+                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10"
+              >
+                Use phone camera (video)
               </button>
             </div>
 
@@ -464,14 +526,23 @@ export function GuestBooth({
                 <div className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-slate-950/80">
                   {capturedMedia && (
                     <div className="flex min-h-[420px] items-center justify-center p-4">
-                      <Image
-                        src={capturedMedia.previewUrl}
-                        alt="Captured preview"
-                        width={1280}
-                        height={720}
-                        unoptimized
-                        className="max-h-[420px] w-full rounded-[1.25rem] object-cover shadow-2xl"
-                      />
+                      {capturedMedia.kind === "video" ? (
+                        <video
+                          src={capturedMedia.previewUrl}
+                          controls
+                          playsInline
+                          className="max-h-[420px] w-full rounded-[1.25rem] object-cover shadow-2xl"
+                        />
+                      ) : (
+                        <Image
+                          src={capturedMedia.previewUrl}
+                          alt="Captured preview"
+                          width={1280}
+                          height={720}
+                          unoptimized
+                          className="max-h-[420px] w-full rounded-[1.25rem] object-cover shadow-2xl"
+                        />
+                      )}
                     </div>
                   )}
                   {!capturedMedia && (
@@ -485,11 +556,20 @@ export function GuestBooth({
                 <div className="flex flex-wrap gap-3">
                   <button
                     type="button"
-                    onClick={triggerNativeCapture}
+                    onClick={triggerNativePhotoCapture}
                     className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-50 disabled:opacity-50"
                     disabled={isPublishing || !canUseNativeCapture}
                   >
-                    Use phone camera
+                    Use phone camera (photo)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={triggerNativeVideoCapture}
+                    className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-50 disabled:opacity-50"
+                    disabled={isPublishing || !canUseNativeCapture}
+                  >
+                    Use phone camera (video)
                   </button>
 
                   <button
