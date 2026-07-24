@@ -36,14 +36,41 @@ function getPreferredRecorderMimeType() {
   );
 }
 
-function isDeviceLandscapeNow() {
-  if (typeof window === "undefined") return false;
+function normalizeOrientationAngle(value: number) {
+  return ((value % 360) + 360) % 360;
+}
 
-  if (window.screen?.orientation?.type) {
-    return window.screen.orientation.type.startsWith("landscape");
+function getDeviceOrientationSnapshot() {
+  if (typeof window === "undefined") {
+    return { isLandscape: false, angle: null as number | null };
   }
 
-  return window.matchMedia("(orientation: landscape)").matches;
+  let angle: number | null = null;
+
+  if (typeof window.screen?.orientation?.angle === "number") {
+    angle = normalizeOrientationAngle(window.screen.orientation.angle);
+  } else {
+    const legacyOrientation = (window as Window & { orientation?: number })
+      .orientation;
+    if (typeof legacyOrientation === "number") {
+      angle = normalizeOrientationAngle(legacyOrientation);
+    }
+  }
+
+  const viewport = window.visualViewport;
+  const viewportLandscape = viewport
+    ? viewport.width > viewport.height
+    : window.innerWidth > window.innerHeight;
+
+  if (angle === 90 || angle === 270) {
+    return { isLandscape: true, angle };
+  }
+
+  if (angle === 0 || angle === 180) {
+    return { isLandscape: false, angle };
+  }
+
+  return { isLandscape: viewportLandscape, angle };
 }
 
 export function GuestBooth({
@@ -260,6 +287,9 @@ export function GuestBooth({
           audio: mode === "video",
           video: {
             facingMode: { ideal: cameraFacing },
+            width: { ideal: 1080 },
+            height: { ideal: 1920 },
+            aspectRatio: { ideal: 9 / 16 },
           },
         });
 
@@ -327,21 +357,29 @@ export function GuestBooth({
   async function capturePhoto() {
     const video = videoRef.current;
     if (!video) return;
+    const orientation = getDeviceOrientationSnapshot();
     const sourceWidth = video.videoWidth || 1280;
     const sourceHeight = video.videoHeight || 720;
-    const shouldSaveAsPortrait =
-      sourceWidth > sourceHeight || isDeviceLandscapeNow();
+    const shouldRotateToPortrait = sourceWidth > sourceHeight;
+    const useClockwiseQuarterTurn = orientation.angle !== 270;
 
     const canvas = document.createElement("canvas");
-    canvas.width = shouldSaveAsPortrait ? sourceHeight : sourceWidth;
-    canvas.height = shouldSaveAsPortrait ? sourceWidth : sourceHeight;
+    canvas.width = shouldRotateToPortrait ? sourceHeight : sourceWidth;
+    canvas.height = shouldRotateToPortrait ? sourceWidth : sourceHeight;
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    if (shouldSaveAsPortrait) {
-      context.translate(canvas.width, 0);
-      context.rotate(Math.PI / 2);
+    if (shouldRotateToPortrait) {
+      context.save();
+      if (useClockwiseQuarterTurn) {
+        context.translate(canvas.width, 0);
+        context.rotate(Math.PI / 2);
+      } else {
+        context.translate(0, canvas.height);
+        context.rotate(-Math.PI / 2);
+      }
       context.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+      context.restore();
     } else {
       context.drawImage(video, 0, 0, sourceWidth, sourceHeight);
     }
@@ -371,7 +409,7 @@ export function GuestBooth({
 
   async function normalizeVideoToPortrait(
     inputBlob: Blob,
-    forcePortraitFromLandscape: boolean,
+    orientationAtRecordingStart: { isLandscape: boolean; angle: number | null },
   ) {
     if (typeof document === "undefined") return inputBlob;
 
@@ -407,7 +445,10 @@ export function GuestBooth({
 
       const isLandscapeSource = sourceWidth > sourceHeight;
       const shouldRotateToPortrait =
-        forcePortraitFromLandscape || isLandscapeSource;
+        isLandscapeSource ||
+        (orientationAtRecordingStart.isLandscape &&
+          sourceWidth === sourceHeight);
+      const useClockwiseQuarterTurn = orientationAtRecordingStart.angle !== 270;
 
       const canvas = document.createElement("canvas");
       canvas.width = shouldRotateToPortrait ? sourceHeight : sourceWidth;
@@ -444,8 +485,13 @@ export function GuestBooth({
 
         if (shouldRotateToPortrait) {
           context.save();
-          context.translate(canvas.width, 0);
-          context.rotate(Math.PI / 2);
+          if (useClockwiseQuarterTurn) {
+            context.translate(canvas.width, 0);
+            context.rotate(Math.PI / 2);
+          } else {
+            context.translate(0, canvas.height);
+            context.rotate(-Math.PI / 2);
+          }
           context.drawImage(sourceVideo, 0, 0, sourceWidth, sourceHeight);
           context.restore();
         } else {
@@ -491,7 +537,7 @@ export function GuestBooth({
   async function startRecording() {
     const stream = streamRef.current;
     if (!stream || !canRecordVideo) return;
-    const shouldForcePortraitFromLandscape = isDeviceLandscapeNow();
+    const orientationAtRecordingStart = getDeviceOrientationSnapshot();
 
     chunksRef.current = [];
     const mimeType = getPreferredRecorderMimeType();
@@ -515,7 +561,7 @@ export function GuestBooth({
 
         const processedBlob = await normalizeVideoToPortrait(
           recordedBlob,
-          shouldForcePortraitFromLandscape,
+          orientationAtRecordingStart,
         );
         const file = new File(
           [processedBlob],
