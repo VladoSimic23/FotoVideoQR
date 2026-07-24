@@ -311,8 +311,8 @@ export function GuestBooth({
     if (!context) return;
 
     if (shouldRotateFrontAtCapture) {
-      context.translate(canvas.width, canvas.height);
-      context.rotate(Math.PI);
+      context.translate(canvas.width, 0);
+      context.scale(-1, 1);
     }
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
@@ -601,7 +601,7 @@ export function GuestBooth({
                     playsInline
                     style={{
                       transform: shouldRotateFrontCamera
-                        ? "rotate(180deg)"
+                        ? "rotateY(-180deg)"
                         : "none",
                     }}
                     className={`h-[420px] w-full object-cover ${capturedMedia ? "opacity-25" : "opacity-100"}`}
@@ -615,7 +615,7 @@ export function GuestBooth({
                           playsInline
                           style={{
                             transform: capturedMedia.needsRotationFix
-                              ? "rotate(180deg)"
+                              ? "rotateY(-180deg)"
                               : "none",
                           }}
                           className="max-h-[420px] w-full rounded-[1.25rem] object-cover shadow-2xl"
@@ -748,7 +748,7 @@ export function GuestBooth({
                           preload="metadata"
                           style={{
                             transform: item.needsRotationFix
-                              ? "rotate(180deg)"
+                              ? "rotateY(-180deg)"
                               : "none",
                           }}
                           className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
@@ -823,7 +823,7 @@ export function GuestBooth({
                 playsInline
                 style={{
                   transform: activeViewerItem.needsRotationFix
-                    ? "rotate(180deg)"
+                    ? "rotateY(-180deg)"
                     : "none",
                 }}
                 className="max-h-[82vh] w-full bg-black object-contain"
