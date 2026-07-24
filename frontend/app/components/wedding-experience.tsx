@@ -105,7 +105,7 @@ export function WeddingExperience({
   const welcomeCopy =
     event?.welcomeCopy ??
     "Ovo je premium galerija za vjenčanje s jednostavnim guest upload tokom, modernim prikazom i jasnim bridal dashboardom.";
-  const hasHero = Boolean(event?.heroImage?.asset?.url);
+  const heroImageUrl = event?.heroImage?.asset?.url;
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#07111f] text-slate-50">
@@ -179,9 +179,9 @@ export function WeddingExperience({
 
               <div className="grid gap-4">
                 <div className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-white/6 p-4 shadow-xl">
-                  {hasHero ? (
+                  {heroImageUrl ? (
                     <Image
-                      src={event?.heroImage?.asset?.url}
+                      src={heroImageUrl}
                       alt={event?.heroImage?.alt ?? coupleLabel}
                       width={1200}
                       height={720}
