@@ -31,7 +31,7 @@ export function GuestBooth({
   guestPath,
   dashboardPath,
   eventSlug,
-  maxVideoSeconds = 10,
+  maxVideoSeconds = 12,
   title,
   coupleNames,
 }: {
@@ -781,6 +781,9 @@ export function GuestBooth({
                     </>
                   )}
                 </div>
+                <p className="text-xs text-slate-300">
+                  Max trajanje videa: {maxVideoSeconds}s
+                </p>
                 {isPreparingVideo && (
                   <p className="text-sm text-slate-300">
                     Kompresujem video za upload...

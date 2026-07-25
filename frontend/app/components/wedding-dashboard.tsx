@@ -240,7 +240,7 @@ export function WeddingDashboard({
                 </h2>
               </div>
               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.24em] text-amber-100">
-                {event.maxVideoSeconds ?? 10}s max
+                {event.maxVideoSeconds ?? 12}s max
               </span>
             </div>
 

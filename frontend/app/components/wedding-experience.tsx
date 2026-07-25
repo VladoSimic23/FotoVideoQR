@@ -165,7 +165,7 @@ export function WeddingExperience({
 
                 <div className="mt-8 flex flex-wrap gap-3 text-sm">
                   <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-slate-200">
-                    Max video: {event?.maxVideoSeconds ?? 10}s
+                    Max video: {event?.maxVideoSeconds ?? 12}s
                   </span>
                   <span className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-slate-200">
                     Moderation: {event?.moderationMode ?? "review"}

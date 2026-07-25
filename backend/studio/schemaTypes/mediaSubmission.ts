@@ -101,7 +101,7 @@ export default defineType({
       name: 'durationSeconds',
       title: 'Duration seconds',
       type: 'number',
-      description: 'Useful for short guest videos up to 10 seconds',
+      description: 'Useful for short guest videos up to 12 seconds',
     }),
   ],
   preview: {

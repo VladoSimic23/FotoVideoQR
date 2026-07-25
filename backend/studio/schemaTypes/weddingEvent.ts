@@ -93,7 +93,7 @@ export default defineType({
       name: 'maxVideoSeconds',
       title: 'Max video length (seconds)',
       type: 'number',
-      initialValue: 10,
+      initialValue: 12,
       validation: (Rule) => Rule.min(1).max(60),
     }),
     defineField({
