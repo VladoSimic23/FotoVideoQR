@@ -20,6 +20,8 @@ type PublishedItem = {
   caption?: string;
 };
 
+type GalleryFilter = "all" | "photo" | "video";
+
 const RECENT_REFRESH_MS = 15000;
 
 export function GuestBooth({
@@ -53,10 +55,16 @@ export function GuestBooth({
   );
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [galleryFilter, setGalleryFilter] = useState<GalleryFilter>("all");
   const [activeViewerIndex, setActiveViewerIndex] = useState<number | null>(
     null,
   );
   const touchStartXRef = useRef<number | null>(null);
+
+  const filteredPublishedItems =
+    galleryFilter === "all"
+      ? publishedItems
+      : publishedItems.filter((item) => item.kind === galleryFilter);
 
   const loadRecentPublished = useCallback(
     async (showLoading = true) => {
@@ -188,7 +196,11 @@ export function GuestBooth({
   }, [eventSlug, loadRecentPublished]);
 
   useEffect(() => {
-    if (activeViewerIndex === null || publishedItems.length === 0) return;
+    if (activeViewerIndex === null || filteredPublishedItems.length === 0) {
+      return;
+    }
+
+    const itemsCount = filteredPublishedItems.length;
 
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -198,15 +210,29 @@ export function GuestBooth({
 
       if (event.key === "ArrowLeft") {
         setActiveViewerIndex((current) => {
-          if (current === null || publishedItems.length === 0) return current;
-          return current === 0 ? publishedItems.length - 1 : current - 1;
+          if (current === null || itemsCount === 0) {
+            return current;
+          }
+
+          const normalizedCurrent =
+            ((current % itemsCount) + itemsCount) % itemsCount;
+          return normalizedCurrent === 0
+            ? itemsCount - 1
+            : normalizedCurrent - 1;
         });
       }
 
       if (event.key === "ArrowRight") {
         setActiveViewerIndex((current) => {
-          if (current === null || publishedItems.length === 0) return current;
-          return current === publishedItems.length - 1 ? 0 : current + 1;
+          if (current === null || itemsCount === 0) {
+            return current;
+          }
+
+          const normalizedCurrent =
+            ((current % itemsCount) + itemsCount) % itemsCount;
+          return normalizedCurrent === itemsCount - 1
+            ? 0
+            : normalizedCurrent + 1;
         });
       }
     }
@@ -218,7 +244,7 @@ export function GuestBooth({
       document.body.style.overflow = "";
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [activeViewerIndex, publishedItems]);
+  }, [activeViewerIndex, filteredPublishedItems]);
 
   useEffect(() => {
     return () => {
@@ -333,21 +359,35 @@ export function GuestBooth({
   }
 
   const activeViewerItem =
-    activeViewerIndex !== null && publishedItems[activeViewerIndex]
-      ? publishedItems[activeViewerIndex]
+    activeViewerIndex !== null && filteredPublishedItems[activeViewerIndex]
+      ? filteredPublishedItems[activeViewerIndex]
       : null;
 
   function goToPreviousInViewer() {
     setActiveViewerIndex((current) => {
-      if (current === null || publishedItems.length === 0) return current;
-      return current === 0 ? publishedItems.length - 1 : current - 1;
+      const itemsCount = filteredPublishedItems.length;
+
+      if (current === null || itemsCount === 0) {
+        return current;
+      }
+
+      const normalizedCurrent =
+        ((current % itemsCount) + itemsCount) % itemsCount;
+      return normalizedCurrent === 0 ? itemsCount - 1 : normalizedCurrent - 1;
     });
   }
 
   function goToNextInViewer() {
     setActiveViewerIndex((current) => {
-      if (current === null || publishedItems.length === 0) return current;
-      return current === publishedItems.length - 1 ? 0 : current + 1;
+      const itemsCount = filteredPublishedItems.length;
+
+      if (current === null || itemsCount === 0) {
+        return current;
+      }
+
+      const normalizedCurrent =
+        ((current % itemsCount) + itemsCount) % itemsCount;
+      return normalizedCurrent === itemsCount - 1 ? 0 : normalizedCurrent + 1;
     });
   }
 
@@ -479,18 +519,16 @@ export function GuestBooth({
         Guest route: {guestPath}. Dashboard route: {dashboardPath}. Max video
         config: {maxVideoSeconds}.
       </p>
-      <section className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-6 py-8 sm:px-10 lg:px-12">
+      <section className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-3 py-8 sm:px-3 lg:px-12">
         <header className="rounded-[2rem] border border-white/10 bg-white/5 px-6 py-5 backdrop-blur-xl">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
                 {coupleNames}
               </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-                {title} · Dobro došli na vjenčanje! 🥂 Hvala vam što ste danas s
-                nama! Pomozite nam sačuvati sve dragocjene i lude trenutke s
-                naše svadbe. Uslikajte ili snimite kratki video, podijelite ga u
-                zajednički album i pogledajte kako ekipa uživa! 📸
+              {/* <p className="mt-2 text-sm text-slate-300">{title}</p> */}
+              <p className="mt-2 max-w-2xl text-ls leading-7 text-slate-300 sm:text-base">
+                Podijelite s nama trenutke s naše proslave
               </p>
             </div>
           </div>
@@ -627,10 +665,46 @@ export function GuestBooth({
           </section>
 
           <section className="rounded-[2rem] border border-white/10 bg-white/5 p-3 backdrop-blur-xl sm:p-6">
-            <div className="mt-5 space-y-4">
-              {publishedItems.length > 0 ? (
-                <div className="grid grid-cols-4 gap-1.5 sm:gap-3">
-                  {publishedItems.map((item, index) => (
+            <div className="mb-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setGalleryFilter("all")}
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                  galleryFilter === "all"
+                    ? "bg-white text-slate-900"
+                    : "border border-white/15 bg-white/5 text-slate-200 hover:bg-white/10"
+                }`}
+              >
+                Sve
+              </button>
+              <button
+                type="button"
+                onClick={() => setGalleryFilter("photo")}
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                  galleryFilter === "photo"
+                    ? "bg-white text-slate-900"
+                    : "border border-white/15 bg-white/5 text-slate-200 hover:bg-white/10"
+                }`}
+              >
+                Slike
+              </button>
+              <button
+                type="button"
+                onClick={() => setGalleryFilter("video")}
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                  galleryFilter === "video"
+                    ? "bg-white text-slate-900"
+                    : "border border-white/15 bg-white/5 text-slate-200 hover:bg-white/10"
+                }`}
+              >
+                Video
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {filteredPublishedItems.length > 0 ? (
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
+                  {filteredPublishedItems.map((item, index) => (
                     <button
                       key={item.id}
                       type="button"
@@ -666,8 +740,9 @@ export function GuestBooth({
                 </div>
               ) : (
                 <div className="rounded-[1.5rem] border border-dashed border-white/15 bg-white/5 px-6 py-12 text-center text-sm leading-7 text-slate-300">
-                  After publish, entries are sent to Sanity and show status in
-                  the dashboard moderation queue.
+                  {publishedItems.length === 0
+                    ? "After publish, entries are sent to Sanity and show status in the dashboard moderation queue."
+                    : "Nema stavki za odabrani filter."}
                 </div>
               )}
             </div>
