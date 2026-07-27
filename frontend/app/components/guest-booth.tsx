@@ -61,6 +61,7 @@ export function GuestBooth({
   );
   const [isPublishing, setIsPublishing] = useState(false);
   const [isPreparingVideo, setIsPreparingVideo] = useState(false);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [galleryFilter, setGalleryFilter] = useState<GalleryFilter>("all");
   const [activeViewerIndex, setActiveViewerIndex] = useState<number | null>(
@@ -403,6 +404,7 @@ export function GuestBooth({
         if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
         return null;
       });
+      setIsPreviewLoading(false);
     } catch (error) {
       setPublishError(
         error instanceof Error
@@ -420,6 +422,7 @@ export function GuestBooth({
       if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
       return null;
     });
+    setIsPreviewLoading(false);
     setPublishError(null);
     setCaptureLabel("Ready to capture");
   }
@@ -662,10 +665,12 @@ export function GuestBooth({
           `Video moze trajati maksimalno ${effectiveMaxVideoSeconds} sekundi.`,
         );
         setCaptureLabel("Video je predugacak");
+        setIsPreviewLoading(false);
         return;
       }
 
       const previewUrl = URL.createObjectURL(uploadFile);
+      setIsPreviewLoading(true);
 
       setCapturedMedia((current) => {
         if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
@@ -858,6 +863,8 @@ export function GuestBooth({
                           src={capturedMedia.previewUrl}
                           controls
                           playsInline
+                          onLoadedData={() => setIsPreviewLoading(false)}
+                          onError={() => setIsPreviewLoading(false)}
                           className="max-h-[420px] w-full rounded-[1.5rem] object-cover shadow-2xl shadow-stone-900/10"
                         />
                       ) : (
@@ -867,8 +874,21 @@ export function GuestBooth({
                           width={1280}
                           height={720}
                           unoptimized
+                          onLoad={() => setIsPreviewLoading(false)}
+                          onError={() => setIsPreviewLoading(false)}
                           className="max-h-[420px] w-full rounded-[1.5rem] object-cover shadow-2xl shadow-stone-900/10"
                         />
+                      )}
+
+                      {isPreviewLoading && (
+                        <div className="absolute inset-4 z-20 flex items-center justify-center rounded-[1.5rem] bg-black/35 backdrop-blur-[1px]">
+                          <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/30 bg-white/85 px-5 py-4 text-center">
+                            <span className="loading-spinner h-7 w-7 rounded-full border-4 border-rose-200 border-t-rose-500" />
+                            <p className="text-sm font-semibold text-stone-800">
+                              Ucitavam preview...
+                            </p>
+                          </div>
+                        </div>
                       )}
 
                       {capturedMedia.kind === "video" &&

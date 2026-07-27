@@ -1,6 +1,8 @@
 import { createClient } from "@sanity/client";
 import { NextResponse } from "next/server";
 
+export const runtime = "nodejs";
+
 const projectId = process.env.NEXT_PUBLIC_SANITY_PROJECT_ID ?? "33lo3roy";
 const dataset = process.env.NEXT_PUBLIC_SANITY_DATASET ?? "production";
 const apiVersion = "2026-07-23";
