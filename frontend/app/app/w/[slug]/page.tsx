@@ -30,7 +30,6 @@ export default async function GuestWeddingPage({
       eventSlug={guestSlug}
       guestPath={`/w/${guestSlug}`}
       dashboardPath={`/dashboard/${dashboardSlug}`}
-      maxVideoSeconds={Math.min(event?.maxVideoSeconds ?? 15, 15)}
     />
   );
 }

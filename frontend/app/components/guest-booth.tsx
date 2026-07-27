@@ -36,14 +36,12 @@ export function GuestBooth({
   guestPath,
   dashboardPath,
   eventSlug,
-  maxVideoSeconds = 15,
   title,
   coupleNames,
 }: {
   guestPath: string;
   dashboardPath: string;
   eventSlug: string;
-  maxVideoSeconds?: number;
   title: string;
   coupleNames: string;
 }) {
@@ -76,10 +74,7 @@ export function GuestBooth({
     galleryFilter === "all"
       ? publishedItems
       : publishedItems.filter((item) => item.kind === galleryFilter);
-  const effectiveMaxVideoSeconds = Math.min(
-    maxVideoSeconds,
-    MAX_VIDEO_SECONDS_HARD_LIMIT,
-  );
+  const effectiveMaxVideoSeconds = MAX_VIDEO_SECONDS_HARD_LIMIT;
   const coupleInitials = getCoupleInitials(coupleNames);
 
   function getTooLargeUploadMessage(kind: "photo" | "video") {
@@ -860,10 +855,36 @@ export function GuestBooth({
         </div>
       )}
 
+      {isPreparingVideo && !showIntroOverlay && (
+        <div className="fixed inset-0 z-[68] flex items-center justify-center bg-black/45 backdrop-blur-sm">
+          <div className="flex min-w-[280px] flex-col items-center gap-3 rounded-3xl border border-white/30 bg-white/85 px-8 py-6 text-center shadow-2xl">
+            <span className="loading-spinner h-8 w-8 rounded-full border-4 border-rose-200 border-t-rose-500" />
+            <p className="font-semibold text-stone-800">
+              Pripremam video preview, molimo pričekajte...
+            </p>
+          </div>
+        </div>
+      )}
+
+      {isPublishing && !showIntroOverlay && (
+        <div className="fixed inset-0 z-[69] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="flex min-w-[280px] flex-col items-center gap-3 rounded-3xl border border-white/30 bg-white/88 px-8 py-6 text-center shadow-2xl">
+            <span className="loading-spinner h-9 w-9 rounded-full border-4 border-rose-200 border-t-rose-500" />
+            <p className="font-semibold text-stone-800">
+              Objavljujem sadržaj, samo trenutak...
+            </p>
+          </div>
+        </div>
+      )}
+
       <style jsx>{`
         .intro-heartbeat {
           animation: intro-heartbeat 1.15s ease-in-out infinite;
           transform-origin: center;
+        }
+
+        .loading-spinner {
+          animation: spin 0.9s linear infinite;
         }
 
         @keyframes intro-heartbeat {
@@ -884,6 +905,15 @@ export function GuestBooth({
           }
           100% {
             transform: scale(1);
+          }
+        }
+
+        @keyframes spin {
+          0% {
+            transform: rotate(0deg);
+          }
+          100% {
+            transform: rotate(360deg);
           }
         }
       `}</style>
