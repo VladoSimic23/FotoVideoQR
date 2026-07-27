@@ -48,14 +48,6 @@ export function GuestBooth({
 }) {
   const nativePhotoInputRef = useRef<HTMLInputElement | null>(null);
   const nativeVideoInputRef = useRef<HTMLInputElement | null>(null);
-  const inlineRecorderPreviewRef = useRef<HTMLVideoElement | null>(null);
-  const recordingStreamRef = useRef<MediaStream | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordingChunksRef = useRef<BlobPart[]>([]);
-  const recordingDurationSecondsRef = useRef(0);
-  const recordingAutoStopTimeoutRef = useRef<number | null>(null);
-  const recordingCountdownIntervalRef = useRef<number | null>(null);
-  const shouldDiscardRecordingRef = useRef(false);
 
   const [cameraFacing] = useState<CameraFacing>("user");
   const [captureLabel, setCaptureLabel] = useState("Ready to capture");
@@ -77,10 +69,6 @@ export function GuestBooth({
   );
   const [showIntroOverlay, setShowIntroOverlay] = useState(true);
   const [introOverlayExiting, setIntroOverlayExiting] = useState(false);
-  const [isRecordingInlineVideo, setIsRecordingInlineVideo] = useState(false);
-  const [recordingSecondsLeft, setRecordingSecondsLeft] = useState(
-    MAX_VIDEO_SECONDS_HARD_LIMIT,
-  );
   const touchStartXRef = useRef<number | null>(null);
 
   const filteredPublishedItems =
@@ -307,208 +295,6 @@ export function GuestBooth({
       window.clearTimeout(hideTimeout);
     };
   }, []);
-
-  useEffect(() => {
-    return () => {
-      if (recordingAutoStopTimeoutRef.current !== null) {
-        window.clearTimeout(recordingAutoStopTimeoutRef.current);
-      }
-      if (recordingCountdownIntervalRef.current !== null) {
-        window.clearInterval(recordingCountdownIntervalRef.current);
-      }
-
-      if (mediaRecorderRef.current?.state === "recording") {
-        mediaRecorderRef.current.stop();
-      }
-
-      if (recordingStreamRef.current) {
-        recordingStreamRef.current.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, []);
-
-  function clearInlineRecordingTimers() {
-    if (recordingAutoStopTimeoutRef.current !== null) {
-      window.clearTimeout(recordingAutoStopTimeoutRef.current);
-      recordingAutoStopTimeoutRef.current = null;
-    }
-
-    if (recordingCountdownIntervalRef.current !== null) {
-      window.clearInterval(recordingCountdownIntervalRef.current);
-      recordingCountdownIntervalRef.current = null;
-    }
-  }
-
-  async function finishInlineRecording() {
-    const roundedDurationSeconds = Math.max(
-      0.1,
-      Number(recordingDurationSecondsRef.current.toFixed(1)),
-    );
-    const blobType = mediaRecorderRef.current?.mimeType || "video/webm";
-    const recordedBlob = new Blob(recordingChunksRef.current, {
-      type: blobType,
-    });
-
-    recordingChunksRef.current = [];
-    recordingDurationSecondsRef.current = 0;
-
-    if (shouldDiscardRecordingRef.current) {
-      shouldDiscardRecordingRef.current = false;
-      return;
-    }
-
-    if (!recordedBlob.size) {
-      setCaptureLabel("Snimanje nije uspjelo. Pokusaj ponovo.");
-      return;
-    }
-
-    const videoFile = new File([recordedBlob], "capture-video.webm", {
-      type: blobType,
-    });
-
-    const maxSizeForVideo = getUploadSizeLimitBytes("video");
-    let uploadFile = videoFile;
-
-    if (uploadFile.size > maxSizeForVideo) {
-      setIsPreparingVideo(true);
-      setCaptureLabel("Preparing video for upload...");
-
-      uploadFile = await compressVideoForUpload(
-        uploadFile,
-        effectiveMaxVideoSeconds,
-        maxSizeForVideo,
-        true,
-      );
-
-      setIsPreparingVideo(false);
-    }
-
-    const previewUrl = URL.createObjectURL(uploadFile);
-
-    setCapturedMedia((current) => {
-      if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
-      return {
-        kind: "video",
-        file: uploadFile,
-        previewUrl,
-        durationSeconds: Number(
-          Math.min(roundedDurationSeconds, effectiveMaxVideoSeconds).toFixed(1),
-        ),
-      };
-    });
-
-    if (uploadFile.size > maxSizeForVideo) {
-      setPublishError(getTooLargeUploadMessage("video"));
-    } else {
-      setPublishError(null);
-    }
-
-    setCaptureLabel("Video preview ready");
-  }
-
-  async function stopInlineVideoRecording(discard = false) {
-    shouldDiscardRecordingRef.current = discard;
-    clearInlineRecordingTimers();
-    setIsRecordingInlineVideo(false);
-    setRecordingSecondsLeft(effectiveMaxVideoSeconds);
-
-    if (mediaRecorderRef.current?.state === "recording") {
-      mediaRecorderRef.current.stop();
-    } else if (discard) {
-      shouldDiscardRecordingRef.current = false;
-    }
-
-    if (recordingStreamRef.current) {
-      recordingStreamRef.current.getTracks().forEach((track) => track.stop());
-      recordingStreamRef.current = null;
-    }
-  }
-
-  async function startInlineVideoRecording() {
-    if (
-      typeof window === "undefined" ||
-      !navigator.mediaDevices ||
-      !navigator.mediaDevices.getUserMedia ||
-      typeof MediaRecorder === "undefined"
-    ) {
-      triggerNativeVideoCapture();
-      return;
-    }
-
-    setPublishError(null);
-    setIsPreparingVideo(true);
-    setCaptureLabel("Otvaram kameru...");
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: cameraFacing,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: true,
-      });
-
-      const mimeType = getSupportedVideoMimeType();
-      const recorder = new MediaRecorder(stream, {
-        ...(mimeType ? { mimeType } : {}),
-        videoBitsPerSecond: 1_800_000,
-      });
-
-      recordingStreamRef.current = stream;
-      mediaRecorderRef.current = recorder;
-      recordingChunksRef.current = [];
-      shouldDiscardRecordingRef.current = false;
-      recordingDurationSecondsRef.current = 0;
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          recordingChunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = () => {
-        void finishInlineRecording();
-      };
-
-      const previewVideo = inlineRecorderPreviewRef.current;
-      if (previewVideo) {
-        previewVideo.srcObject = stream;
-        previewVideo.muted = true;
-        previewVideo.playsInline = true;
-        await previewVideo.play();
-      }
-
-      setIsRecordingInlineVideo(true);
-      setRecordingSecondsLeft(effectiveMaxVideoSeconds);
-      setCaptureLabel("Snimanje videa...");
-      setIsPreparingVideo(false);
-
-      recorder.start(250);
-
-      recordingAutoStopTimeoutRef.current = window.setTimeout(() => {
-        void stopInlineVideoRecording(false);
-      }, effectiveMaxVideoSeconds * 1000);
-
-      recordingCountdownIntervalRef.current = window.setInterval(() => {
-        const nextDuration = Math.min(
-          effectiveMaxVideoSeconds,
-          Number((recordingDurationSecondsRef.current + 0.1).toFixed(1)),
-        );
-        recordingDurationSecondsRef.current = nextDuration;
-
-        const remaining = Math.max(
-          0,
-          Number((effectiveMaxVideoSeconds - nextDuration).toFixed(1)),
-        );
-        setRecordingSecondsLeft(remaining);
-      }, 100);
-    } catch {
-      setCaptureLabel("Kamera nije dostupna, otvaram sistemsku kameru...");
-      setIsPreparingVideo(false);
-      triggerNativeVideoCapture();
-    }
-  }
 
   async function publishCurrent() {
     if (!capturedMedia) return;
@@ -1139,44 +925,6 @@ export function GuestBooth({
         </div>
       )}
 
-      {isRecordingInlineVideo && (
-        <div className="fixed inset-0 z-[71] flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-3xl border border-white/20 bg-black/45 p-4 text-white shadow-2xl">
-            <div className="mb-3 flex items-center justify-between text-sm">
-              <span className="font-semibold">Snimanje u toku</span>
-              <span className="rounded-full bg-white/15 px-3 py-1 font-semibold">
-                {recordingSecondsLeft.toFixed(1)}s
-              </span>
-            </div>
-
-            <video
-              ref={inlineRecorderPreviewRef}
-              autoPlay
-              muted
-              playsInline
-              className="h-[280px] w-full rounded-2xl bg-black object-cover"
-            />
-
-            <div className="mt-4 flex gap-3">
-              <button
-                type="button"
-                onClick={() => void stopInlineVideoRecording(false)}
-                className="flex-1 rounded-full bg-rose-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-600"
-              >
-                Zaustavi
-              </button>
-              <button
-                type="button"
-                onClick={() => void stopInlineVideoRecording(true)}
-                className="flex-1 rounded-full border border-white/30 bg-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/20"
-              >
-                Odustani
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {isPreparingVideo && !showIntroOverlay && (
         <div className="fixed inset-0 z-[68] flex items-center justify-center bg-black/45 backdrop-blur-sm">
           <div className="flex min-w-[280px] flex-col items-center gap-3 rounded-3xl border border-white/30 bg-white/85 px-8 py-6 text-center shadow-2xl">
@@ -1357,11 +1105,7 @@ export function GuestBooth({
                       type="button"
                       onClick={deleteCapture}
                       className="rounded-full border border-stone-200 bg-stone-50 px-5 py-3 text-sm font-semibold text-stone-700 transition hover:border-stone-300 hover:bg-stone-100 disabled:opacity-50"
-                      disabled={
-                        isPublishing ||
-                        isPreparingVideo ||
-                        isRecordingInlineVideo
-                      }
+                      disabled={isPublishing || isPreparingVideo}
                     >
                       Delete
                     </button>
@@ -1370,11 +1114,7 @@ export function GuestBooth({
                       type="button"
                       onClick={resetCapture}
                       className="rounded-full border border-stone-200 bg-white px-5 py-3 text-sm font-semibold text-stone-700 transition hover:border-stone-300 hover:bg-stone-50 disabled:opacity-50"
-                      disabled={
-                        isPublishing ||
-                        isPreparingVideo ||
-                        isRecordingInlineVideo
-                      }
+                      disabled={isPublishing || isPreparingVideo}
                     >
                       Retake
                     </button>
@@ -1383,11 +1123,7 @@ export function GuestBooth({
                       type="button"
                       onClick={publishCurrent}
                       className="rounded-full border border-rose-200 bg-rose-200 px-5 py-3 text-sm font-semibold text-rose-900 shadow-lg shadow-rose-200/45 transition hover:bg-rose-300 disabled:opacity-50"
-                      disabled={
-                        isPublishing ||
-                        isPreparingVideo ||
-                        isRecordingInlineVideo
-                      }
+                      disabled={isPublishing || isPreparingVideo}
                     >
                       {isPublishing ? "Publishing..." : "Publish"}
                     </button>
@@ -1520,20 +1256,16 @@ export function GuestBooth({
             type="button"
             onClick={triggerNativePhotoCapture}
             className="w-full rounded-full border border-rose-200 bg-rose-200 px-5 py-4 text-sm font-semibold text-rose-900 shadow-lg shadow-rose-200/45 transition hover:bg-rose-300 disabled:opacity-50 sm:w-auto sm:min-w-[180px]"
-            disabled={
-              isPublishing || isPreparingVideo || isRecordingInlineVideo
-            }
+            disabled={isPublishing || isPreparingVideo}
           >
             📸 Uslikaj fotografiju
           </button>
 
           <button
             type="button"
-            onClick={() => void startInlineVideoRecording()}
+            onClick={triggerNativeVideoCapture}
             className="w-full rounded-full border border-stone-200 bg-white px-5 py-4 text-sm font-semibold text-stone-700 shadow-lg shadow-stone-100/40 transition hover:border-stone-300 hover:bg-stone-50 disabled:opacity-50 sm:w-auto sm:min-w-[180px]"
-            disabled={
-              isPublishing || isPreparingVideo || isRecordingInlineVideo
-            }
+            disabled={isPublishing || isPreparingVideo}
           >
             🎥 Snimi video
           </button>
