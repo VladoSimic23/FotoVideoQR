@@ -27,6 +27,7 @@ const MAX_UPLOAD_BYTES = 4_000_000;
 const IMAGE_TARGET_MAX_WIDTH = 1600;
 const IMAGE_TARGET_QUALITY = 0.82;
 const IMAGE_MIN_QUALITY = 0.55;
+const MAX_VIDEO_SECONDS_HARD_LIMIT = 15;
 const VIDEO_TARGET_MAX_WIDTH = 720;
 const VIDEO_TARGET_MAX_BITRATE = 900_000;
 
@@ -34,7 +35,7 @@ export function GuestBooth({
   guestPath,
   dashboardPath,
   eventSlug,
-  maxVideoSeconds = 12,
+  maxVideoSeconds = 15,
   title,
   coupleNames,
 }: {
@@ -74,6 +75,10 @@ export function GuestBooth({
     galleryFilter === "all"
       ? publishedItems
       : publishedItems.filter((item) => item.kind === galleryFilter);
+  const effectiveMaxVideoSeconds = Math.min(
+    maxVideoSeconds,
+    MAX_VIDEO_SECONDS_HARD_LIMIT,
+  );
   const coupleInitials = getCoupleInitials(coupleNames);
 
   function getTooLargeUploadMessage(kind: "photo" | "video") {
@@ -289,6 +294,17 @@ export function GuestBooth({
 
   async function publishCurrent() {
     if (!capturedMedia) return;
+
+    if (
+      capturedMedia.kind === "video" &&
+      typeof capturedMedia.durationSeconds === "number" &&
+      capturedMedia.durationSeconds > effectiveMaxVideoSeconds
+    ) {
+      setPublishError(
+        `Video moze trajati maksimalno ${effectiveMaxVideoSeconds} sekundi.`,
+      );
+      return;
+    }
 
     if (capturedMedia.file.size > MAX_UPLOAD_BYTES) {
       setPublishError(getTooLargeUploadMessage(capturedMedia.kind));
@@ -722,10 +738,27 @@ export function GuestBooth({
         uploadFile = await compressImageForUpload(selectedFile);
       }
 
-      const previewUrl = URL.createObjectURL(uploadFile);
       const durationSeconds = isVideo
         ? await getVideoDurationFromFile(uploadFile)
         : undefined;
+
+      if (
+        isVideo &&
+        typeof durationSeconds === "number" &&
+        durationSeconds > effectiveMaxVideoSeconds
+      ) {
+        setCapturedMedia((current) => {
+          if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+          return null;
+        });
+        setPublishError(
+          `Video moze trajati maksimalno ${effectiveMaxVideoSeconds} sekundi.`,
+        );
+        setCaptureLabel("Video je predugacak");
+        return;
+      }
+
+      const previewUrl = URL.createObjectURL(uploadFile);
 
       setCapturedMedia((current) => {
         if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
@@ -830,7 +863,7 @@ export function GuestBooth({
       </p>
       <p className="sr-only">
         Guest route: {guestPath}. Dashboard route: {dashboardPath}. Max video
-        config: {maxVideoSeconds}.
+        config: {effectiveMaxVideoSeconds}.
       </p>
       <section className="relative z-10 mx-auto flex w-full max-w-7xl flex-col gap-8 px-3 py-8 pb-32 sm:px-3 sm:pb-36 lg:px-12 lg:pb-8">
         <header className="overflow-hidden rounded-[2.5rem] border border-stone-200/80 bg-white/86 px-6 py-6 shadow-[0_24px_80px_rgba(120,96,76,0.10)] backdrop-blur-2xl sm:px-8 sm:py-8">

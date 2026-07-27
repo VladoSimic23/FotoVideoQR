@@ -171,7 +171,7 @@ export async function POST(request: Request) {
     }
 
     if (mediaKind === "video") {
-      const maxSeconds = weddingEvent.maxVideoSeconds ?? 12;
+      const maxSeconds = Math.min(weddingEvent.maxVideoSeconds ?? 15, 15);
       if (durationSeconds > maxSeconds + 0.5) {
         return NextResponse.json(
           {
