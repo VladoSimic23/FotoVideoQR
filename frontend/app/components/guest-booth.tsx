@@ -25,6 +25,7 @@ type GalleryFilter = "all" | "photo" | "video";
 const RECENT_REFRESH_MS = 15000;
 const MAX_VIDEO_UPLOAD_BYTES = 30_000_000;
 const MAX_IMAGE_UPLOAD_BYTES = 12_000_000;
+const MAX_REQUEST_UPLOAD_BYTES = 3_800_000;
 const IMAGE_TARGET_MAX_WIDTH = 2400;
 const IMAGE_TARGET_QUALITY = 0.9;
 const IMAGE_MIN_QUALITY = 0.78;
@@ -79,14 +80,17 @@ export function GuestBooth({
 
   function getTooLargeUploadMessage(kind: "photo" | "video") {
     if (kind === "video") {
-      return "Video je prevelik za upload (max 30MB).";
+      return "Video je prevelik za slanje. Pokusaj kraci snimak ili nizu kvalitetu.";
     }
 
-    return "Fotka je prevelika za upload (max 12MB).";
+    return "Fotka je prevelika za slanje. Pokusaj manju rezoluciju ili udalji kadar.";
   }
 
   function getUploadSizeLimitBytes(kind: "photo" | "video") {
-    return kind === "video" ? MAX_VIDEO_UPLOAD_BYTES : MAX_IMAGE_UPLOAD_BYTES;
+    const mediaLimit =
+      kind === "video" ? MAX_VIDEO_UPLOAD_BYTES : MAX_IMAGE_UPLOAD_BYTES;
+
+    return Math.min(mediaLimit, MAX_REQUEST_UPLOAD_BYTES);
   }
 
   const loadRecentPublished = useCallback(
@@ -540,6 +544,7 @@ export function GuestBooth({
   async function compressVideoForUpload(
     file: File,
     maxDurationSeconds: number,
+    maxSizeBytes: number,
     forceProcessing = false,
   ) {
     if (typeof window === "undefined") return file;
@@ -547,6 +552,7 @@ export function GuestBooth({
 
     const mimeType = getSupportedVideoMimeType();
     if (!mimeType) return file;
+    const resolvedMimeType = mimeType;
 
     const sourceUrl = URL.createObjectURL(file);
 
@@ -572,7 +578,7 @@ export function GuestBooth({
         ? sourceVideo.duration
         : 0;
       const shouldTrim = sourceDuration > maxDurationSeconds + 0.05;
-      const shouldCompress = file.size > MAX_VIDEO_UPLOAD_BYTES;
+      const shouldCompress = file.size > maxSizeBytes;
 
       if (!forceProcessing && !shouldTrim && !shouldCompress) {
         return file;
@@ -584,75 +590,135 @@ export function GuestBooth({
 
       const context = canvas.getContext("2d");
       if (!context) return file;
+      const drawContext = context;
 
-      const stream = canvas.captureStream(24);
-      const recorder = new MediaRecorder(stream, {
-        mimeType,
-        videoBitsPerSecond: VIDEO_TARGET_MAX_BITRATE,
-      });
-
-      const chunks: BlobPart[] = [];
       const captureEndAtSeconds =
         shouldTrim && sourceDuration > 0
           ? Math.min(sourceDuration, maxDurationSeconds)
           : null;
 
-      await new Promise<void>((resolve, reject) => {
-        recorder.ondataavailable = (event) => {
-          if (event.data && event.data.size > 0) {
-            chunks.push(event.data);
-          }
-        };
+      const bitrateCandidates = [
+        VIDEO_TARGET_MAX_BITRATE,
+        2_400_000,
+        1_800_000,
+        1_300_000,
+        900_000,
+      ];
 
-        recorder.onerror = () => {
-          reject(new Error("Video compression failed."));
-        };
-
-        recorder.onstop = () => resolve();
-
-        const drawFrame = () => {
-          if (sourceVideo.ended || sourceVideo.paused) return;
-
-          if (
-            captureEndAtSeconds !== null &&
-            sourceVideo.currentTime >= captureEndAtSeconds
-          ) {
-            sourceVideo.pause();
-            recorder.stop();
-            return;
-          }
-
-          context.drawImage(sourceVideo, 0, 0, targetWidth, targetHeight);
-          requestAnimationFrame(drawFrame);
-        };
-
-        sourceVideo.onended = () => {
-          recorder.stop();
-        };
-
-        void sourceVideo.play().then(() => {
-          recorder.start(250);
-          drawFrame();
+      async function recordAtBitrate(targetBitrate: number) {
+        const stream = canvas.captureStream(24);
+        const recorder = new MediaRecorder(stream, {
+          mimeType: resolvedMimeType,
+          videoBitsPerSecond: targetBitrate,
         });
+
+        const chunks: BlobPart[] = [];
+
+        return new Promise<Blob | null>((resolve, reject) => {
+          let hasStopped = false;
+
+          const stopRecording = () => {
+            if (hasStopped) return;
+            hasStopped = true;
+
+            if (recorder.state !== "inactive") {
+              recorder.stop();
+            }
+          };
+
+          const cleanup = () => {
+            stream.getTracks().forEach((track) => track.stop());
+            sourceVideo.onended = null;
+          };
+
+          recorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+              chunks.push(event.data);
+            }
+          };
+
+          recorder.onerror = () => {
+            cleanup();
+            reject(new Error("Video compression failed."));
+          };
+
+          recorder.onstop = () => {
+            cleanup();
+            resolve(
+              chunks.length > 0
+                ? new Blob(chunks, { type: resolvedMimeType })
+                : null,
+            );
+          };
+
+          const drawFrame = () => {
+            if (sourceVideo.ended || sourceVideo.paused) {
+              stopRecording();
+              return;
+            }
+
+            if (
+              captureEndAtSeconds !== null &&
+              sourceVideo.currentTime >= captureEndAtSeconds
+            ) {
+              sourceVideo.pause();
+              stopRecording();
+              return;
+            }
+
+            drawContext.drawImage(sourceVideo, 0, 0, targetWidth, targetHeight);
+            requestAnimationFrame(drawFrame);
+          };
+
+          sourceVideo.currentTime = 0;
+          sourceVideo.onended = () => {
+            stopRecording();
+          };
+
+          void sourceVideo.play().then(() => {
+            recorder.start(250);
+            drawFrame();
+          });
+        });
+      }
+
+      let bestBlob: Blob | null = null;
+
+      for (const bitrate of bitrateCandidates) {
+        const compressedBlob = await recordAtBitrate(bitrate);
+
+        if (!compressedBlob || !compressedBlob.size) {
+          continue;
+        }
+
+        if (!bestBlob || compressedBlob.size < bestBlob.size) {
+          bestBlob = compressedBlob;
+        }
+
+        if (compressedBlob.size <= maxSizeBytes) {
+          return new File(
+            [compressedBlob],
+            file.name.replace(/\.[^.]+$/, ".webm"),
+            {
+              type: resolvedMimeType,
+              lastModified: Date.now(),
+            },
+          );
+        }
+      }
+
+      if (!bestBlob || !bestBlob.size) {
+        return file;
+      }
+
+      if (!shouldTrim && bestBlob.size >= file.size) {
+        return file;
+      }
+
+      return new File([bestBlob], file.name.replace(/\.[^.]+$/, ".webm"), {
+        type: resolvedMimeType,
+        lastModified: Date.now(),
       });
-
-      const compressedBlob = new Blob(chunks, { type: mimeType });
-      if (!compressedBlob.size) {
-        return file;
-      }
-
-      if (!shouldTrim && compressedBlob.size >= file.size) {
-        return file;
-      }
-
-      return new File(
-        [compressedBlob],
-        file.name.replace(/\.[^.]+$/, ".webm"),
-        {
-          type: mimeType,
-          lastModified: Date.now(),
-        },
-      );
     } catch {
       return file;
     } finally {
@@ -660,7 +726,7 @@ export function GuestBooth({
     }
   }
 
-  async function compressImageForUpload(file: File) {
+  async function compressImageForUpload(file: File, maxSizeBytes: number) {
     if (typeof window === "undefined") return file;
     if (!file.type.startsWith("image/")) return file;
 
@@ -716,7 +782,7 @@ export function GuestBooth({
           bestBlob = compressedBlob;
         }
 
-        if (compressedBlob.size <= MAX_IMAGE_UPLOAD_BYTES) {
+        if (compressedBlob.size <= maxSizeBytes) {
           return new File(
             [compressedBlob],
             file.name.replace(/\.[^.]+$/, ".webp"),
@@ -771,6 +837,7 @@ export function GuestBooth({
         uploadFile = await compressVideoForUpload(
           selectedFile,
           effectiveMaxVideoSeconds,
+          maxSizeForKind,
           shouldTrim || shouldCompress,
         );
 
@@ -783,7 +850,10 @@ export function GuestBooth({
         setCaptureLabel("Preparing photo for upload...");
 
         if (selectedFile.size > maxSizeForKind) {
-          uploadFile = await compressImageForUpload(selectedFile);
+          uploadFile = await compressImageForUpload(
+            selectedFile,
+            maxSizeForKind,
+          );
         }
       }
 
