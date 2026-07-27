@@ -172,19 +172,6 @@ export async function POST(request: Request) {
       );
     }
 
-    if (mediaKind === "video") {
-      const maxSeconds = 15;
-      if (durationSeconds > maxSeconds + 0.5) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: `Video exceeds max duration of ${maxSeconds}s.`,
-          },
-          { status: 400 },
-        );
-      }
-    }
-
     const uploadedAsset =
       mediaKind === "video"
         ? await writeClient.assets.upload("file", mediaFileValue, {
