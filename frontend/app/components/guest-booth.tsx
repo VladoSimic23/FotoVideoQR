@@ -16,6 +16,7 @@ type PublishedItem = {
   id: string;
   kind: "photo" | "video";
   url: string;
+  durationSeconds?: number;
   guestName?: string;
   caption?: string;
 };
@@ -48,6 +49,13 @@ export function GuestBooth({
 }) {
   const nativePhotoInputRef = useRef<HTMLInputElement | null>(null);
   const nativeVideoInputRef = useRef<HTMLInputElement | null>(null);
+  const inlineRecorderPreviewRef = useRef<HTMLVideoElement | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<BlobPart[]>([]);
+  const recordingAutoStopTimeoutRef = useRef<number | null>(null);
+  const recordingCountdownIntervalRef = useRef<number | null>(null);
+  const shouldDiscardRecordingRef = useRef(false);
 
   const [cameraFacing] = useState<CameraFacing>("user");
   const [captureLabel, setCaptureLabel] = useState("Ready to capture");
@@ -69,6 +77,10 @@ export function GuestBooth({
   );
   const [showIntroOverlay, setShowIntroOverlay] = useState(true);
   const [introOverlayExiting, setIntroOverlayExiting] = useState(false);
+  const [isRecordingInlineVideo, setIsRecordingInlineVideo] = useState(false);
+  const [recordingSecondsLeft, setRecordingSecondsLeft] = useState(
+    MAX_VIDEO_SECONDS_HARD_LIMIT,
+  );
   const touchStartXRef = useRef<number | null>(null);
 
   const filteredPublishedItems =
@@ -114,6 +126,7 @@ export function GuestBooth({
             _id: string;
             _createdAt: string;
             mediaKind?: "image" | "video";
+            durationSeconds?: number;
             status?: string;
             guestName?: string;
             caption?: string;
@@ -131,6 +144,10 @@ export function GuestBooth({
             id: entry._id,
             kind: entry.mediaKind === "video" ? "video" : "photo",
             url: entry.video?.asset?.url ?? entry.image?.asset?.url ?? "",
+            durationSeconds:
+              typeof entry.durationSeconds === "number"
+                ? Number(entry.durationSeconds.toFixed(1))
+                : undefined,
             guestName: entry.guestName,
             caption: entry.caption,
           }))
@@ -165,6 +182,7 @@ export function GuestBooth({
             _id: string;
             _createdAt: string;
             mediaKind?: "image" | "video";
+            durationSeconds?: number;
             status?: string;
             guestName?: string;
             caption?: string;
@@ -182,6 +200,10 @@ export function GuestBooth({
             id: entry._id,
             kind: entry.mediaKind === "video" ? "video" : "photo",
             url: entry.video?.asset?.url ?? entry.image?.asset?.url ?? "",
+            durationSeconds:
+              typeof entry.durationSeconds === "number"
+                ? Number(entry.durationSeconds.toFixed(1))
+                : undefined,
             guestName: entry.guestName,
             caption: entry.caption,
           }))
@@ -296,6 +318,223 @@ export function GuestBooth({
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (recordingAutoStopTimeoutRef.current !== null) {
+        window.clearTimeout(recordingAutoStopTimeoutRef.current);
+      }
+      if (recordingCountdownIntervalRef.current !== null) {
+        window.clearInterval(recordingCountdownIntervalRef.current);
+      }
+
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+
+      if (recordingStreamRef.current) {
+        recordingStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
+  function clearInlineRecorderTimers() {
+    if (recordingAutoStopTimeoutRef.current !== null) {
+      window.clearTimeout(recordingAutoStopTimeoutRef.current);
+      recordingAutoStopTimeoutRef.current = null;
+    }
+
+    if (recordingCountdownIntervalRef.current !== null) {
+      window.clearInterval(recordingCountdownIntervalRef.current);
+      recordingCountdownIntervalRef.current = null;
+    }
+  }
+
+  function cleanupInlineRecorderResources() {
+    if (recordingStreamRef.current) {
+      recordingStreamRef.current.getTracks().forEach((track) => track.stop());
+      recordingStreamRef.current = null;
+    }
+
+    const previewElement = inlineRecorderPreviewRef.current;
+    if (previewElement) {
+      previewElement.pause();
+      previewElement.srcObject = null;
+    }
+  }
+
+  async function finalizeInlineRecording() {
+    const blobType = mediaRecorderRef.current?.mimeType || "video/webm";
+    const recordedBlob = new Blob(recordingChunksRef.current, {
+      type: blobType,
+    });
+    recordingChunksRef.current = [];
+
+    if (shouldDiscardRecordingRef.current) {
+      shouldDiscardRecordingRef.current = false;
+      return;
+    }
+
+    if (!recordedBlob.size) {
+      setCaptureLabel("Snimanje nije uspjelo. Pokusaj ponovo.");
+      return;
+    }
+
+    const rawRecordedFile = new File([recordedBlob], "capture-video.webm", {
+      type: blobType,
+    });
+
+    const maxSizeForVideo = getUploadSizeLimitBytes("video");
+    let uploadFile = rawRecordedFile;
+
+    if (uploadFile.size > maxSizeForVideo) {
+      setIsPreparingVideo(true);
+      setCaptureLabel("Preparing video for upload...");
+
+      uploadFile = await compressVideoForUpload(
+        uploadFile,
+        effectiveMaxVideoSeconds,
+        maxSizeForVideo,
+        true,
+      );
+
+      setIsPreparingVideo(false);
+    }
+
+    const durationFromFinalFile = await getVideoDurationFromFile(uploadFile);
+    const finalDurationSeconds =
+      typeof durationFromFinalFile === "number"
+        ? Number(
+            Math.min(durationFromFinalFile, effectiveMaxVideoSeconds).toFixed(
+              1,
+            ),
+          )
+        : undefined;
+
+    const previewUrl = URL.createObjectURL(uploadFile);
+
+    setCapturedMedia((current) => {
+      if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+      return {
+        kind: "video",
+        file: uploadFile,
+        previewUrl,
+        durationSeconds: finalDurationSeconds,
+      };
+    });
+
+    if (uploadFile.size > maxSizeForVideo) {
+      setPublishError(getTooLargeUploadMessage("video"));
+    } else {
+      setPublishError(null);
+    }
+
+    setCaptureLabel("Video preview ready");
+  }
+
+  function stopInlineVideoRecording(discard = false) {
+    shouldDiscardRecordingRef.current = discard;
+    clearInlineRecorderTimers();
+    setIsRecordingInlineVideo(false);
+    setRecordingSecondsLeft(effectiveMaxVideoSeconds);
+
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+      return;
+    }
+
+    cleanupInlineRecorderResources();
+    if (discard) {
+      shouldDiscardRecordingRef.current = false;
+    }
+  }
+
+  async function startInlineVideoRecording() {
+    if (
+      typeof window === "undefined" ||
+      !navigator.mediaDevices ||
+      !navigator.mediaDevices.getUserMedia ||
+      typeof MediaRecorder === "undefined"
+    ) {
+      triggerNativeVideoCapture();
+      return;
+    }
+
+    setPublishError(null);
+    setCaptureLabel("Otvaram kameru...");
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: cameraFacing,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: true,
+      });
+
+      const mimeType = getSupportedVideoMimeType();
+      if (!mimeType) {
+        cleanupInlineRecorderResources();
+        triggerNativeVideoCapture();
+        return;
+      }
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 2_000_000,
+      });
+
+      recordingStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      recordingChunksRef.current = [];
+      shouldDiscardRecordingRef.current = false;
+      setRecordingSecondsLeft(effectiveMaxVideoSeconds);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordingChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        cleanupInlineRecorderResources();
+        void finalizeInlineRecording();
+      };
+
+      recorder.onerror = () => {
+        cleanupInlineRecorderResources();
+        setCaptureLabel("Snimanje nije uspjelo. Pokusaj ponovo.");
+      };
+
+      const previewVideo = inlineRecorderPreviewRef.current;
+      if (previewVideo) {
+        previewVideo.srcObject = stream;
+        previewVideo.muted = true;
+        previewVideo.playsInline = true;
+        await previewVideo.play();
+      }
+
+      setIsRecordingInlineVideo(true);
+      setCaptureLabel("Snimanje videa...");
+
+      recorder.start(250);
+
+      recordingAutoStopTimeoutRef.current = window.setTimeout(() => {
+        stopInlineVideoRecording(false);
+      }, effectiveMaxVideoSeconds * 1000);
+
+      recordingCountdownIntervalRef.current = window.setInterval(() => {
+        setRecordingSecondsLeft((current) => {
+          const next = Math.max(0, Number((current - 0.1).toFixed(1)));
+          return next;
+        });
+      }, 100);
+    } catch {
+      setCaptureLabel("Kamera nije dostupna, otvaram sistemsku kameru...");
+      triggerNativeVideoCapture();
+    }
+  }
+
   async function publishCurrent() {
     if (!capturedMedia) return;
 
@@ -378,6 +617,10 @@ export function GuestBooth({
         id: result.submissionId ?? `${Date.now()}`,
         kind: capturedMedia.kind,
         url: result.assetUrl ?? capturedMedia.previewUrl,
+        durationSeconds:
+          capturedMedia.kind === "video"
+            ? capturedMedia.durationSeconds
+            : undefined,
         guestName: guestName.trim() || undefined,
         caption: caption.trim() || undefined,
       };
@@ -510,7 +753,7 @@ export function GuestBooth({
           const rawDuration = Number.isFinite(video.duration)
             ? video.duration
             : undefined;
-          resolve(rawDuration ? Math.round(rawDuration) : undefined);
+          resolve(rawDuration ? Number(rawDuration.toFixed(1)) : undefined);
         };
         video.onerror = () => resolve(undefined);
       });
@@ -925,6 +1168,44 @@ export function GuestBooth({
         </div>
       )}
 
+      {isRecordingInlineVideo && (
+        <div className="fixed inset-0 z-[71] flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-white/20 bg-black/45 p-4 text-white shadow-2xl">
+            <div className="mb-3 flex items-center justify-between text-sm">
+              <span className="font-semibold">Snimanje u toku</span>
+              <span className="rounded-full bg-white/15 px-3 py-1 font-semibold">
+                {recordingSecondsLeft.toFixed(1)}s
+              </span>
+            </div>
+
+            <video
+              ref={inlineRecorderPreviewRef}
+              autoPlay
+              muted
+              playsInline
+              className="h-[280px] w-full rounded-2xl bg-black object-cover"
+            />
+
+            <div className="mt-4 flex gap-3">
+              <button
+                type="button"
+                onClick={() => stopInlineVideoRecording(false)}
+                className="flex-1 rounded-full bg-rose-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-600"
+              >
+                Zaustavi
+              </button>
+              <button
+                type="button"
+                onClick={() => stopInlineVideoRecording(true)}
+                className="flex-1 rounded-full border border-white/30 bg-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/20"
+              >
+                Odustani
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isPreparingVideo && !showIntroOverlay && (
         <div className="fixed inset-0 z-[68] flex items-center justify-center bg-black/45 backdrop-blur-sm">
           <div className="flex min-w-[280px] flex-col items-center gap-3 rounded-3xl border border-white/30 bg-white/85 px-8 py-6 text-center shadow-2xl">
@@ -1082,6 +1363,13 @@ export function GuestBooth({
                           className="max-h-[420px] w-full rounded-[1.5rem] object-cover shadow-2xl shadow-stone-900/10"
                         />
                       )}
+
+                      {capturedMedia.kind === "video" &&
+                        typeof capturedMedia.durationSeconds === "number" && (
+                          <span className="absolute left-6 top-6 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold tracking-wide text-white">
+                            {formatDuration(capturedMedia.durationSeconds)}
+                          </span>
+                        )}
                     </div>
                   </div>
 
@@ -1105,7 +1393,11 @@ export function GuestBooth({
                       type="button"
                       onClick={deleteCapture}
                       className="rounded-full border border-stone-200 bg-stone-50 px-5 py-3 text-sm font-semibold text-stone-700 transition hover:border-stone-300 hover:bg-stone-100 disabled:opacity-50"
-                      disabled={isPublishing || isPreparingVideo}
+                      disabled={
+                        isPublishing ||
+                        isPreparingVideo ||
+                        isRecordingInlineVideo
+                      }
                     >
                       Delete
                     </button>
@@ -1114,7 +1406,11 @@ export function GuestBooth({
                       type="button"
                       onClick={resetCapture}
                       className="rounded-full border border-stone-200 bg-white px-5 py-3 text-sm font-semibold text-stone-700 transition hover:border-stone-300 hover:bg-stone-50 disabled:opacity-50"
-                      disabled={isPublishing || isPreparingVideo}
+                      disabled={
+                        isPublishing ||
+                        isPreparingVideo ||
+                        isRecordingInlineVideo
+                      }
                     >
                       Retake
                     </button>
@@ -1123,7 +1419,11 @@ export function GuestBooth({
                       type="button"
                       onClick={publishCurrent}
                       className="rounded-full border border-rose-200 bg-rose-200 px-5 py-3 text-sm font-semibold text-rose-900 shadow-lg shadow-rose-200/45 transition hover:bg-rose-300 disabled:opacity-50"
-                      disabled={isPublishing || isPreparingVideo}
+                      disabled={
+                        isPublishing ||
+                        isPreparingVideo ||
+                        isRecordingInlineVideo
+                      }
                     >
                       {isPublishing ? "Publishing..." : "Publish"}
                     </button>
@@ -1231,6 +1531,13 @@ export function GuestBooth({
                       <span className="absolute bottom-2 right-2 rounded-full border border-stone-200 bg-white/90 p-1.5 text-stone-700 shadow-sm backdrop-blur-sm">
                         {item.kind === "video" ? <VideoIcon /> : <ImageIcon />}
                       </span>
+
+                      {item.kind === "video" &&
+                        typeof item.durationSeconds === "number" && (
+                          <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[11px] font-semibold text-white">
+                            {formatDuration(item.durationSeconds)}
+                          </span>
+                        )}
                     </button>
                   ))}
                 </div>
@@ -1256,16 +1563,20 @@ export function GuestBooth({
             type="button"
             onClick={triggerNativePhotoCapture}
             className="w-full rounded-full border border-rose-200 bg-rose-200 px-5 py-4 text-sm font-semibold text-rose-900 shadow-lg shadow-rose-200/45 transition hover:bg-rose-300 disabled:opacity-50 sm:w-auto sm:min-w-[180px]"
-            disabled={isPublishing || isPreparingVideo}
+            disabled={
+              isPublishing || isPreparingVideo || isRecordingInlineVideo
+            }
           >
             📸 Uslikaj fotografiju
           </button>
 
           <button
             type="button"
-            onClick={triggerNativeVideoCapture}
+            onClick={() => void startInlineVideoRecording()}
             className="w-full rounded-full border border-stone-200 bg-white px-5 py-4 text-sm font-semibold text-stone-700 shadow-lg shadow-stone-100/40 transition hover:border-stone-300 hover:bg-stone-50 disabled:opacity-50 sm:w-auto sm:min-w-[180px]"
-            disabled={isPublishing || isPreparingVideo}
+            disabled={
+              isPublishing || isPreparingVideo || isRecordingInlineVideo
+            }
           >
             🎥 Snimi video
           </button>
@@ -1323,13 +1634,23 @@ export function GuestBooth({
               )}
             </div>
 
-            {(activeViewerItem.guestName || activeViewerItem.caption) && (
+            {(activeViewerItem.guestName ||
+              activeViewerItem.caption ||
+              (activeViewerItem.kind === "video" &&
+                typeof activeViewerItem.durationSeconds === "number")) && (
               <div className="border-t border-white/10 bg-black/35 px-4 py-3 text-white">
                 {activeViewerItem.guestName && (
                   <p className="font-[family-name:var(--font-display)] text-lg font-semibold sm:text-xl">
                     {activeViewerItem.guestName}
                   </p>
                 )}
+                {activeViewerItem.kind === "video" &&
+                  typeof activeViewerItem.durationSeconds === "number" && (
+                    <p className="text-xs uppercase tracking-[0.2em] text-white/70">
+                      Trajanje:{" "}
+                      {formatDuration(activeViewerItem.durationSeconds)}
+                    </p>
+                  )}
                 {activeViewerItem.caption && (
                   <p className="mt-1 text-sm leading-6 text-white/85 sm:text-base">
                     {activeViewerItem.caption}
@@ -1354,6 +1675,11 @@ export function GuestBooth({
       )}
     </main>
   );
+}
+
+function formatDuration(durationSeconds: number) {
+  const safeSeconds = Math.max(0, Number(durationSeconds.toFixed(1)));
+  return `${safeSeconds.toFixed(1)}s`;
 }
 
 function getCoupleInitials(coupleNames: string) {

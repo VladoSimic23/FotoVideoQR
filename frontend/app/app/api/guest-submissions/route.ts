@@ -57,6 +57,7 @@ export async function GET(request: Request) {
         _id: string;
         _createdAt: string;
         mediaKind?: "image" | "video";
+        durationSeconds?: number;
         status?: string;
         guestName?: string;
         caption?: string;
@@ -68,6 +69,7 @@ export async function GET(request: Request) {
         _id,
         _createdAt,
         mediaKind,
+        durationSeconds,
         status,
         guestName,
         caption,
