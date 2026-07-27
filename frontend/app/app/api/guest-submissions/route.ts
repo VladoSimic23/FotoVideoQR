@@ -191,7 +191,7 @@ export async function POST(request: Request) {
           })
         : await writeClient.assets.upload("image", mediaFileValue, {
             filename: mediaFileValue.name,
-            contentType: mediaFileValue.type || "image/jpeg",
+            contentType: mediaFileValue.type || "image/webp",
           });
 
     const now = new Date().toISOString();
