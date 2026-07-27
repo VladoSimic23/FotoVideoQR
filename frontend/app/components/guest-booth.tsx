@@ -24,9 +24,9 @@ type PublishedItem = {
 type GalleryFilter = "all" | "photo" | "video";
 
 const RECENT_REFRESH_MS = 15000;
-const MAX_VIDEO_UPLOAD_BYTES = 30_000_000;
+const MAX_VIDEO_UPLOAD_BYTES = 40_000_000;
 const MAX_IMAGE_UPLOAD_BYTES = 12_000_000;
-const MAX_REQUEST_UPLOAD_BYTES = 3_800_000;
+const MAX_REQUEST_UPLOAD_BYTES = 40_000_000;
 const IMAGE_TARGET_MAX_WIDTH = 2400;
 const IMAGE_TARGET_QUALITY = 0.9;
 const IMAGE_MIN_QUALITY = 0.78;
@@ -79,7 +79,7 @@ export function GuestBooth({
 
   function getTooLargeUploadMessage(kind: "photo" | "video") {
     if (kind === "video") {
-      return "Video je prevelik za slanje. Pokusaj kraci snimak ili nizu kvalitetu.";
+      return "Video je prevelik za slanje. Maksimalna velicina je 40 MB.";
     }
 
     return "Fotka je prevelika za slanje. Pokusaj manju rezoluciju ili udalji kadar.";
@@ -309,9 +309,17 @@ export function GuestBooth({
     if (!capturedMedia) return;
 
     if (
-      capturedMedia.kind === "photo" &&
-      capturedMedia.file.size > getUploadSizeLimitBytes(capturedMedia.kind)
+      capturedMedia.kind === "video" &&
+      typeof capturedMedia.durationSeconds === "number" &&
+      capturedMedia.durationSeconds > effectiveMaxVideoSeconds
     ) {
+      setPublishError(
+        `Video moze trajati maksimalno ${effectiveMaxVideoSeconds} sekundi.`,
+      );
+      return;
+    }
+
+    if (capturedMedia.file.size > getUploadSizeLimitBytes(capturedMedia.kind)) {
       setPublishError(getTooLargeUploadMessage(capturedMedia.kind));
       return;
     }
@@ -641,6 +649,22 @@ export function GuestBooth({
         ? await getVideoDurationFromFile(uploadFile)
         : undefined;
 
+      if (
+        isVideo &&
+        typeof durationSeconds === "number" &&
+        durationSeconds > effectiveMaxVideoSeconds
+      ) {
+        setCapturedMedia((current) => {
+          if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
+          return null;
+        });
+        setPublishError(
+          `Video moze trajati maksimalno ${effectiveMaxVideoSeconds} sekundi.`,
+        );
+        setCaptureLabel("Video je predugacak");
+        return;
+      }
+
       const previewUrl = URL.createObjectURL(uploadFile);
 
       setCapturedMedia((current) => {
@@ -653,7 +677,7 @@ export function GuestBooth({
         };
       });
 
-      if (!isVideo && uploadFile.size > maxSizeForKind) {
+      if (uploadFile.size > maxSizeForKind) {
         setPublishError(getTooLargeUploadMessage(kind));
       } else {
         setPublishError(null);

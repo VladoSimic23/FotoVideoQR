@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 const projectId = process.env.NEXT_PUBLIC_SANITY_PROJECT_ID ?? "33lo3roy";
 const dataset = process.env.NEXT_PUBLIC_SANITY_DATASET ?? "production";
 const apiVersion = "2026-07-23";
+const MAX_VIDEO_SECONDS = 15;
+const MAX_VIDEO_UPLOAD_BYTES = 40_000_000;
 
 const token =
   process.env.SANITY_API_WRITE_TOKEN || process.env.SANITY_WRITE_TOKEN;
@@ -135,6 +137,31 @@ export async function POST(request: Request) {
         { ok: false, error: "Missing captured media file." },
         { status: 400 },
       );
+    }
+
+    if (mediaKind === "video") {
+      if (mediaFileValue.size > MAX_VIDEO_UPLOAD_BYTES) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Video is too large. Maximum allowed size is 40 MB.",
+          },
+          { status: 400 },
+        );
+      }
+
+      if (
+        Number.isFinite(durationSeconds) &&
+        durationSeconds > MAX_VIDEO_SECONDS
+      ) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Video exceeds max duration of ${MAX_VIDEO_SECONDS}s.`,
+          },
+          { status: 400 },
+        );
+      }
     }
 
     const weddingEvent = await writeClient.fetch<{
