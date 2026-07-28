@@ -699,7 +699,7 @@ export function GuestBooth({
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[linear-gradient(180deg,_#fffdfb_0%,_#f9f4ee_45%,_#f4ede4_100%)] text-slate-800">
+    <main className="relative min-h-screen overflow-hidden bg-[linear-gradient(180deg,_#e5d6d6_0%,_#f9f4ee_45%,_#f4ede4_100%)] text-slate-800">
       {showIntroOverlay && (
         <div
           className={`fixed inset-0 z-[70] flex items-center justify-center bg-black/65 backdrop-blur-md transition-opacity duration-700 ${
@@ -812,40 +812,21 @@ export function GuestBooth({
         Guest route: {guestPath}. Dashboard route: {dashboardPath}. Max video
         config: {effectiveMaxVideoSeconds}.
       </p>
-      <section className="relative z-10 mx-auto flex w-full max-w-7xl flex-col gap-8 px-3 py-8 pb-32 sm:px-3 sm:pb-36 lg:px-12 lg:pb-8">
-        <header className="overflow-hidden rounded-[2.5rem] border border-stone-200/80 bg-white/86 px-6 py-6 shadow-[0_24px_80px_rgba(120,96,76,0.10)] backdrop-blur-2xl sm:px-8 sm:py-8">
+      <section className="relative z-10 mx-auto flex w-full max-w-7xl flex-col gap-8 px-3 py-3 pb-32 sm:px-3 sm:pb-36 lg:px-12 lg:pb-8">
+        <header className="overflow-hidden  bg-white/86 px-6 py-6 shadow-[0_24px_80px_rgba(120,96,76,0.10)] backdrop-blur-2xl sm:px-8 sm:py-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
-              <h1 className="mt-5 font-[family-name:var(--font-display)] text-5xl font-semibold tracking-[0.02em] text-slate-900 sm:text-6xl lg:text-7xl">
+              <h1 className="font-[family-name:var(--font-display)] text-5xl font-semibold tracking-[0.02em] text-slate-900 sm:text-6xl lg:text-7xl">
                 {coupleNames}
               </h1>
-              <p className="mt-3 text-sm font-medium uppercase tracking-[0.3em] text-stone-600 sm:text-base">
+              {/* <p className="mt-3 text-sm font-medium uppercase tracking-[0.3em] text-stone-600 sm:text-base">
                 {title}
-              </p>
-              <p className="mt-4 max-w-2xl text-base leading-8 text-stone-600 sm:text-lg">
+              </p> */}
+              <p className="mt-4 max-w-2xl text-base leading-6 text-stone-600 sm:text-lg">
                 Podijelite s nama trenutke, osmijehe i male uspomene iz ovog
                 dana.
               </p>
             </div>
-
-            {/* <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[300px] lg:grid-cols-1">
-              <div className="rounded-[1.6rem] border border-stone-200 bg-white/76 px-5 py-4 text-sm text-stone-600 shadow-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-stone-500">
-                  Dobrodošli
-                </p>
-                <p className="mt-2 leading-6">
-                  Uslikaj fotku ili snimi video i dodaj poruku za mladence.
-                </p>
-              </div>
-              <div className="rounded-[1.6rem] border border-stone-200 bg-gradient-to-br from-stone-50 to-rose-50 px-5 py-4 text-sm text-stone-600 shadow-sm">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-stone-500">
-                  Elegantan zapis
-                </p>
-                <p className="mt-2 leading-6">
-                  Sve ostaje pregledno i spremno za zajedničku galeriju.
-                </p>
-              </div>
-            </div> */}
           </div>
         </header>
 
@@ -853,7 +834,7 @@ export function GuestBooth({
           className={`grid gap-6 ${capturedMedia ? "lg:grid-cols-[1.05fr_0.95fr]" : ""}`}
         >
           {capturedMedia && (
-            <section className="rounded-[2.5rem] border border-stone-200/80 bg-white/88 p-4 shadow-[0_24px_80px_rgba(120,96,76,0.10)] backdrop-blur-2xl sm:p-6">
+            <section className="bg-white/88 p-4 shadow-[0_24px_80px_rgba(120,96,76,0.10)] backdrop-blur-2xl sm:p-6">
               <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_0.8fr]">
                 <div className="space-y-4">
                   <div className="relative overflow-hidden rounded-[2rem] border border-stone-200 bg-gradient-to-b from-white to-stone-50/70">
@@ -922,7 +903,7 @@ export function GuestBooth({
                       className="rounded-full border border-stone-200 bg-stone-50 px-5 py-3 text-sm font-semibold text-stone-700 transition hover:border-stone-300 hover:bg-stone-100 disabled:opacity-50"
                       disabled={isPublishing || isPreparingVideo}
                     >
-                      Delete
+                      Izbriši
                     </button>
 
                     <button
@@ -931,7 +912,7 @@ export function GuestBooth({
                       className="rounded-full border border-stone-200 bg-white px-5 py-3 text-sm font-semibold text-stone-700 transition hover:border-stone-300 hover:bg-stone-50 disabled:opacity-50"
                       disabled={isPublishing || isPreparingVideo}
                     >
-                      Retake
+                      Ponovi
                     </button>
 
                     <button
@@ -940,7 +921,7 @@ export function GuestBooth({
                       className="rounded-full border border-rose-200 bg-rose-200 px-5 py-3 text-sm font-semibold text-rose-900 shadow-lg shadow-rose-200/45 transition hover:bg-rose-300 disabled:opacity-50"
                       disabled={isPublishing || isPreparingVideo}
                     >
-                      {isPublishing ? "Publishing..." : "Publish"}
+                      {isPublishing ? "Objavljujem..." : "Objavi"}
                     </button>
                   </div>
 
@@ -956,20 +937,20 @@ export function GuestBooth({
 
                 <aside className="space-y-4 rounded-[1.75rem] border border-stone-200 bg-white/84 p-4 shadow-sm">
                   <label className="block text-sm text-stone-600">
-                    Guest name
+                    Ime gosta (opcijski)
                     <input
                       value={guestName}
                       onChange={(event) => setGuestName(event.target.value)}
-                      placeholder="Optional"
+                      placeholder="Opcijski, upiši svoje ime..."
                       className="mt-2 w-full rounded-2xl border border-stone-200 bg-white/92 px-4 py-3 text-slate-900 outline-none placeholder:text-stone-400 focus:border-stone-400 focus:ring-2 focus:ring-stone-200/70"
                     />
                   </label>
                   <label className="block text-sm text-stone-600">
-                    Caption
+                    Mali opis / uspomena (opcijski)
                     <textarea
                       value={caption}
                       onChange={(event) => setCaption(event.target.value)}
-                      placeholder="Write a small memory..."
+                      placeholder="Napiši malu uspomenu..."
                       rows={6}
                       className="mt-2 w-full rounded-2xl border border-stone-200 bg-white/92 px-4 py-3 text-slate-900 outline-none placeholder:text-stone-400 focus:border-stone-400 focus:ring-2 focus:ring-stone-200/70"
                     />
@@ -979,7 +960,7 @@ export function GuestBooth({
             </section>
           )}
 
-          <section className="rounded-[2.5rem] border border-stone-200/80 bg-white/88 p-3 shadow-[0_24px_80px_rgba(120,96,76,0.10)] backdrop-blur-2xl sm:p-6">
+          <section className="bg-white/88 p-3 shadow-[0_24px_80px_rgba(120,96,76,0.10)] backdrop-blur-2xl sm:p-6">
             <div className="mb-4 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -1073,7 +1054,10 @@ export function GuestBooth({
       </section>
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200/80 bg-white/90 px-3 py-3 shadow-[0_-20px_60px_rgba(120,96,76,0.10)] backdrop-blur-2xl">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
+        <div
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}
+          className="mx-auto flex w-full max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-center"
+        >
           <button
             type="button"
             onClick={triggerNativePhotoCapture}
