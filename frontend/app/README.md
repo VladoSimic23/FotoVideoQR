@@ -2,18 +2,20 @@ This is a [Next.js](https://nextjs.org) project for the wedding QR gallery front
 
 ## Environment Setup
 
-The guest upload and dashboard moderation APIs require a Sanity write token.
+The guest upload flow uses direct browser upload to Sanity plus a server-side API for creating `mediaSubmission` documents.
 
 1. Create `frontend/app/.env.local` from `frontend/app/.env.local.example`.
-2. Set `SANITY_API_WRITE_TOKEN` to a token that has write access to your dataset.
-3. Restart the Next.js server after changing env vars.
+2. Set `NEXT_PUBLIC_SANITY_UPLOAD_TOKEN` to a restricted token for browser uploads.
+3. Set `SANITY_API_WRITE_TOKEN` to a server-side token with write access.
+4. Restart the Next.js server after changing env vars.
 
 Example:
 
 ```bash
 NEXT_PUBLIC_SANITY_PROJECT_ID=33lo3roy
 NEXT_PUBLIC_SANITY_DATASET=production
-SANITY_API_WRITE_TOKEN=your_sanity_write_token_here
+NEXT_PUBLIC_SANITY_UPLOAD_TOKEN=your_public_upload_write_token_here
+SANITY_API_WRITE_TOKEN=your_server_write_token_here
 ```
 
 ## Getting Started

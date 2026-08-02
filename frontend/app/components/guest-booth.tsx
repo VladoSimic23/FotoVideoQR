@@ -1,27 +1,23 @@
 "use client";
 
+import { createClient } from "@sanity/client";
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  CloseIcon,
+  formatDuration,
+  getCoupleInitials,
+  ImageIcon,
+  VideoIcon,
+} from "@/app/functions/functions";
+import {
+  CameraFacing,
+  CapturedMedia,
+  GalleryFilter,
+  PublishedItem,
+} from "@/app/types/types";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
-
-type CameraFacing = "user" | "environment";
-
-type CapturedMedia = {
-  kind: "photo" | "video";
-  previewUrl: string;
-  file: File;
-  durationSeconds?: number;
-};
-
-type PublishedItem = {
-  id: string;
-  kind: "photo" | "video";
-  url: string;
-  durationSeconds?: number;
-  guestName?: string;
-  caption?: string;
-};
-
-type GalleryFilter = "all" | "photo" | "video";
 
 const RECENT_REFRESH_MS = 15000;
 const MAX_VIDEO_UPLOAD_BYTES = 40_000_000;
@@ -31,6 +27,21 @@ const IMAGE_TARGET_MAX_WIDTH = 2400;
 const IMAGE_TARGET_QUALITY = 0.9;
 const IMAGE_MIN_QUALITY = 0.78;
 const MAX_VIDEO_SECONDS_HARD_LIMIT = 15;
+
+const projectId = process.env.NEXT_PUBLIC_SANITY_PROJECT_ID ?? "33lo3roy";
+const dataset = process.env.NEXT_PUBLIC_SANITY_DATASET ?? "production";
+const apiVersion = "2026-07-23";
+const directUploadToken = process.env.NEXT_PUBLIC_SANITY_UPLOAD_TOKEN;
+
+const directUploadClient = directUploadToken
+  ? createClient({
+      projectId,
+      dataset,
+      apiVersion,
+      token: directUploadToken,
+      useCdn: false,
+    })
+  : null;
 
 export function GuestBooth({
   guestPath,
@@ -329,23 +340,42 @@ export function GuestBooth({
     setPublishError(null);
 
     try {
-      const formData = new FormData();
-      formData.append("eventSlug", eventSlug);
-      formData.append(
-        "mediaKind",
-        capturedMedia.kind === "video" ? "video" : "image",
-      );
-      formData.append("guestName", guestName.trim());
-      formData.append("caption", caption.trim());
-      formData.append(
-        "durationSeconds",
-        `${capturedMedia.durationSeconds ?? 0}`,
-      );
-      formData.append("file", capturedMedia.file);
+      if (!directUploadClient) {
+        throw new Error(
+          "Missing NEXT_PUBLIC_SANITY_UPLOAD_TOKEN. Add it to frontend/app/.env.local and restart Next.js.",
+        );
+      }
+
+      const uploadedAsset =
+        capturedMedia.kind === "video"
+          ? await directUploadClient.assets.upload("file", capturedMedia.file, {
+              filename: capturedMedia.file.name,
+              contentType: capturedMedia.file.type || "video/webm",
+            })
+          : await directUploadClient.assets.upload(
+              "image",
+              capturedMedia.file,
+              {
+                filename: capturedMedia.file.name,
+                contentType: capturedMedia.file.type || "image/webp",
+              },
+            );
 
       const response = await fetch("/api/guest-submissions", {
         method: "POST",
-        body: formData,
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          eventSlug,
+          mediaKind: capturedMedia.kind === "video" ? "video" : "image",
+          guestName: guestName.trim(),
+          caption: caption.trim(),
+          durationSeconds: capturedMedia.durationSeconds ?? 0,
+          fileSizeBytes: capturedMedia.file.size,
+          assetId: uploadedAsset._id,
+          assetUrl: uploadedAsset.url,
+        }),
       });
 
       const responseContentType = response.headers.get("content-type") ?? "";
@@ -387,7 +417,7 @@ export function GuestBooth({
       const nextItem: PublishedItem = {
         id: result.submissionId ?? `${Date.now()}`,
         kind: capturedMedia.kind,
-        url: result.assetUrl ?? capturedMedia.previewUrl,
+        url: result.assetUrl ?? uploadedAsset.url ?? capturedMedia.previewUrl,
         durationSeconds:
           capturedMedia.kind === "video"
             ? capturedMedia.durationSeconds
@@ -809,8 +839,8 @@ export function GuestBooth({
         {captureLabel}
       </p>
       <p className="sr-only">
-        Guest route: {guestPath}. Dashboard route: {dashboardPath}. Max video
-        config: {effectiveMaxVideoSeconds}.
+        Event title: {title}. Guest route: {guestPath}. Dashboard route:{" "}
+        {dashboardPath}. Max video config: {effectiveMaxVideoSeconds}.
       </p>
       <section className="relative z-10 mx-auto flex w-full max-w-7xl flex-col gap-8 px-3 py-3 pb-32 sm:px-3 sm:pb-36 lg:px-12 lg:pb-8">
         <header className="overflow-hidden  bg-white/86 px-6 py-6 shadow-[0_24px_80px_rgba(120,96,76,0.10)] backdrop-blur-2xl sm:px-8 sm:py-8">
@@ -1169,94 +1199,5 @@ export function GuestBooth({
         </div>
       )}
     </main>
-  );
-}
-
-function formatDuration(durationSeconds: number) {
-  const safeSeconds = Math.max(0, Number(durationSeconds.toFixed(1)));
-  return `${safeSeconds.toFixed(1)}s`;
-}
-
-function getCoupleInitials(coupleNames: string) {
-  const words = coupleNames
-    .replace(/[+&/,]/g, " ")
-    .split(/\s+/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .filter((part) => !/^(i|and)$/i.test(part));
-
-  const initials = words
-    .map((word) => word.match(/[A-Za-zČĆŽŠĐčćžšđ]/)?.[0]?.toUpperCase() ?? "")
-    .filter(Boolean);
-
-  if (initials.length >= 2) {
-    return `${initials[0]} + ${initials[1]}`;
-  }
-
-  if (initials.length === 1) {
-    const fallbackSecond =
-      coupleNames
-        .slice(coupleNames.indexOf(initials[0]) + 1)
-        .match(/[A-Za-zČĆŽŠĐčćžšđ]/)?.[0]
-        ?.toUpperCase() ?? initials[0];
-
-    return `${initials[0]} + ${fallbackSecond}`;
-  }
-
-  return "A + B";
-}
-
-function ImageIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 18.5zm2.5-.5a.5.5 0 0 0-.5.5v8.38l3.6-3.61a1.4 1.4 0 0 1 1.98 0l1.2 1.2 2.6-2.59a1.4 1.4 0 0 1 1.98 0L18 9.58V5.5a.5.5 0 0 0-.5-.5zm11.5 7.41-2.02-2.02-3.2 3.2a1 1 0 0 1-1.42 0L10.59 12l-4.59 4.58v1.92a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5zM9 8.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0"
-      />
-    </svg>
-  );
-}
-
-function VideoIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M4 6.5A2.5 2.5 0 0 1 6.5 4h8A2.5 2.5 0 0 1 17 6.5v2.18l2.87-1.76A1.5 1.5 0 0 1 22 8.2v7.6a1.5 1.5 0 0 1-2.13 1.28L17 15.32v2.18a2.5 2.5 0 0 1-2.5 2.5h-8A2.5 2.5 0 0 1 4 17.5zm11 6.47 4.82 2.96a.5.5 0 0 0 .18.07V8a.5.5 0 0 0-.18.07L15 11.03z"
-      />
-    </svg>
-  );
-}
-
-function ArrowLeftIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M14.78 5.47a.75.75 0 0 1 0 1.06L9.31 12l5.47 5.47a.75.75 0 1 1-1.06 1.06l-6-6a.75.75 0 0 1 0-1.06l6-6a.75.75 0 0 1 1.06 0"
-      />
-    </svg>
-  );
-}
-
-function ArrowRightIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M9.22 5.47a.75.75 0 0 1 1.06 0l6 6a.75.75 0 0 1 0 1.06l-6 6a.75.75 0 1 1-1.06-1.06L14.69 12 9.22 6.53a.75.75 0 0 1 0-1.06"
-      />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M6.72 6.72a.75.75 0 0 1 1.06 0L12 10.94l4.22-4.22a.75.75 0 1 1 1.06 1.06L13.06 12l4.22 4.22a.75.75 0 1 1-1.06 1.06L12 13.06l-4.22 4.22a.75.75 0 1 1-1.06-1.06L10.94 12 6.72 7.78a.75.75 0 0 1 0-1.06"
-      />
-    </svg>
   );
 }

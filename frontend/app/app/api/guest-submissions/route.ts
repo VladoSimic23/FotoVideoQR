@@ -111,13 +111,50 @@ export async function POST(request: Request) {
   }
 
   try {
-    const formData = await request.formData();
-    const eventSlugValue = formData.get("eventSlug");
-    const mediaKindValue = formData.get("mediaKind");
-    const guestNameValue = formData.get("guestName");
-    const captionValue = formData.get("caption");
-    const durationValue = formData.get("durationSeconds");
-    const mediaFileValue = formData.get("file");
+    const contentType = request.headers.get("content-type") ?? "";
+
+    let eventSlugValue: FormDataEntryValue | string | null = null;
+    let mediaKindValue: FormDataEntryValue | string | null = null;
+    let guestNameValue: FormDataEntryValue | string | null = null;
+    let captionValue: FormDataEntryValue | string | null = null;
+    let durationValue: FormDataEntryValue | string | number | null = null;
+    let fileSizeValue: FormDataEntryValue | string | number | null = null;
+    let assetIdValue: FormDataEntryValue | string | null = null;
+    let assetUrlValue: FormDataEntryValue | string | null = null;
+    let mediaFileValue: FormDataEntryValue | null = null;
+
+    if (contentType.includes("application/json")) {
+      const body = (await request.json()) as {
+        eventSlug?: string;
+        mediaKind?: "image" | "video";
+        guestName?: string;
+        caption?: string;
+        durationSeconds?: number;
+        fileSizeBytes?: number;
+        assetId?: string;
+        assetUrl?: string;
+      };
+
+      eventSlugValue = body.eventSlug ?? null;
+      mediaKindValue = body.mediaKind ?? null;
+      guestNameValue = body.guestName ?? "";
+      captionValue = body.caption ?? "";
+      durationValue = body.durationSeconds ?? 0;
+      fileSizeValue = body.fileSizeBytes ?? 0;
+      assetIdValue = body.assetId ?? null;
+      assetUrlValue = body.assetUrl ?? null;
+    } else {
+      const formData = await request.formData();
+      eventSlugValue = formData.get("eventSlug");
+      mediaKindValue = formData.get("mediaKind");
+      guestNameValue = formData.get("guestName");
+      captionValue = formData.get("caption");
+      durationValue = formData.get("durationSeconds");
+      fileSizeValue = formData.get("fileSizeBytes");
+      assetIdValue = formData.get("assetId");
+      assetUrlValue = formData.get("assetUrl");
+      mediaFileValue = formData.get("file");
+    }
 
     const eventSlug =
       typeof eventSlugValue === "string" ? eventSlugValue.trim() : null;
@@ -126,6 +163,11 @@ export async function POST(request: Request) {
       typeof guestNameValue === "string" ? guestNameValue.trim() : "";
     const caption = typeof captionValue === "string" ? captionValue.trim() : "";
     const durationSeconds = Number(durationValue || 0);
+    const fileSizeBytes = Number(fileSizeValue || 0);
+    const preUploadedAssetId =
+      typeof assetIdValue === "string" ? assetIdValue.trim() : "";
+    const preUploadedAssetUrl =
+      typeof assetUrlValue === "string" ? assetUrlValue.trim() : "";
 
     if (isInvalidSlug(eventSlug)) {
       return NextResponse.json(
@@ -134,15 +176,40 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!(mediaFileValue instanceof File) || mediaFileValue.size === 0) {
+    const mediaFile =
+      mediaFileValue instanceof File && mediaFileValue.size > 0
+        ? mediaFileValue
+        : null;
+    const hasPreUploadedAsset = Boolean(preUploadedAssetId);
+    const hasLocalFile = Boolean(mediaFile);
+
+    if (!hasPreUploadedAsset && !hasLocalFile) {
       return NextResponse.json(
-        { ok: false, error: "Missing captured media file." },
+        { ok: false, error: "Missing uploaded media asset." },
         { status: 400 },
       );
     }
 
+    if (hasPreUploadedAsset) {
+      const expectedPrefix = mediaKind === "video" ? "file-" : "image-";
+      if (!preUploadedAssetId.startsWith(expectedPrefix)) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Invalid ${mediaKind} asset reference provided.`,
+          },
+          { status: 400 },
+        );
+      }
+    }
+
     if (mediaKind === "video") {
-      if (mediaFileValue.size > MAX_VIDEO_UPLOAD_BYTES) {
+      const incomingVideoSize = mediaFile ? mediaFile.size : fileSizeBytes;
+
+      if (
+        Number.isFinite(incomingVideoSize) &&
+        incomingVideoSize > MAX_VIDEO_UPLOAD_BYTES
+      ) {
         return NextResponse.json(
           {
             ok: false,
@@ -201,16 +268,57 @@ export async function POST(request: Request) {
       );
     }
 
-    const uploadedAsset =
-      mediaKind === "video"
-        ? await writeClient.assets.upload("file", mediaFileValue, {
-            filename: mediaFileValue.name,
-            contentType: mediaFileValue.type || "video/webm",
-          })
-        : await writeClient.assets.upload("image", mediaFileValue, {
-            filename: mediaFileValue.name,
-            contentType: mediaFileValue.type || "image/webp",
-          });
+    const effectiveMaxVideoSeconds =
+      typeof weddingEvent.maxVideoSeconds === "number" &&
+      Number.isFinite(weddingEvent.maxVideoSeconds) &&
+      weddingEvent.maxVideoSeconds > 0
+        ? Math.min(weddingEvent.maxVideoSeconds, MAX_VIDEO_SECONDS)
+        : MAX_VIDEO_SECONDS;
+
+    if (mediaKind === "video") {
+      if (
+        Number.isFinite(durationSeconds) &&
+        durationSeconds > effectiveMaxVideoSeconds
+      ) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Video exceeds max duration of ${effectiveMaxVideoSeconds}s.`,
+          },
+          { status: 400 },
+        );
+      }
+    }
+
+    let uploadedAsset: { _id: string; url?: string };
+
+    if (mediaFile) {
+      uploadedAsset =
+        mediaKind === "video"
+          ? await writeClient.assets.upload("file", mediaFile, {
+              filename: mediaFile.name,
+              contentType: mediaFile.type || "video/webm",
+            })
+          : await writeClient.assets.upload("image", mediaFile, {
+              filename: mediaFile.name,
+              contentType: mediaFile.type || "image/webp",
+            });
+    } else {
+      uploadedAsset = {
+        _id: preUploadedAssetId,
+        url: preUploadedAssetUrl || undefined,
+      };
+    }
+
+    let uploadedAssetUrl = uploadedAsset.url;
+
+    if (!uploadedAssetUrl) {
+      const assetDocument = await writeClient.fetch<{ url?: string } | null>(
+        `*[_id == $assetId][0]{url}`,
+        { assetId: uploadedAsset._id },
+      );
+      uploadedAssetUrl = assetDocument?.url;
+    }
 
     const now = new Date().toISOString();
     const moderationMode = weddingEvent.moderationMode ?? "review";
@@ -262,7 +370,7 @@ export async function POST(request: Request) {
       submissionId: submission._id,
       status,
       visibleInGallery,
-      assetUrl: uploadedAsset.url,
+      assetUrl: uploadedAssetUrl,
       moderationMode,
     });
   } catch (error) {

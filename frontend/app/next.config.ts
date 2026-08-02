@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
+export const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
       bodySizeLimit: "50mb", // Povećava limit za Server Actions
