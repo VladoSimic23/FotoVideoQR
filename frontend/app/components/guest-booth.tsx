@@ -49,12 +49,14 @@ export function GuestBooth({
   eventSlug,
   title,
   coupleNames,
+  backgroundImageUrl,
 }: {
   guestPath: string;
   dashboardPath: string;
   eventSlug: string;
   title: string;
   coupleNames: string;
+  backgroundImageUrl?: string;
 }) {
   const nativePhotoInputRef = useRef<HTMLInputElement | null>(null);
   const nativeVideoInputRef = useRef<HTMLInputElement | null>(null);
@@ -80,12 +82,19 @@ export function GuestBooth({
   );
   const [showIntroOverlay, setShowIntroOverlay] = useState(true);
   const [introOverlayExiting, setIntroOverlayExiting] = useState(false);
+  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const touchStartXRef = useRef<number | null>(null);
 
   const filteredPublishedItems =
     galleryFilter === "all"
       ? publishedItems
       : publishedItems.filter((item) => item.kind === galleryFilter);
+  const photoCount = publishedItems.filter(
+    (item) => item.kind === "photo",
+  ).length;
+  const videoCount = publishedItems.filter(
+    (item) => item.kind === "video",
+  ).length;
   const effectiveMaxVideoSeconds = MAX_VIDEO_SECONDS_HARD_LIMIT;
   const coupleInitials = getCoupleInitials(coupleNames);
 
@@ -729,7 +738,23 @@ export function GuestBooth({
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[linear-gradient(180deg,_#e5d6d6_0%,_#f9f4ee_45%,_#f4ede4_100%)] text-slate-800">
+    <main className="relative min-h-screen overflow-hidden bg-black text-white">
+      {backgroundImageUrl ? (
+        <Image
+          src={backgroundImageUrl}
+          alt={coupleNames}
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover"
+        />
+      ) : (
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.18),_transparent_35%),linear-gradient(135deg,_#6b1126,_#1f2937_50%,_#0b1020)]" />
+      )}
+
+      <div className="absolute inset-0 bg-black/45" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,_rgba(0,0,0,0.45)_0%,_rgba(0,0,0,0.55)_60%,_rgba(0,0,0,0.7)_100%)]" />
+
       {showIntroOverlay && (
         <div
           className={`fixed inset-0 z-[70] flex items-center justify-center bg-black/65 backdrop-blur-md transition-opacity duration-700 ${
@@ -815,9 +840,9 @@ export function GuestBooth({
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 overflow-hidden"
       >
-        <div className="absolute -left-24 top-8 h-72 w-72 rounded-full bg-rose-200/35 blur-3xl" />
-        <div className="absolute right-[-72px] top-24 h-96 w-96 rounded-full bg-amber-100/30 blur-3xl" />
-        <div className="absolute bottom-0 left-1/2 h-80 w-[42rem] -translate-x-1/2 rounded-full bg-white/45 blur-3xl" />
+        <div className="absolute -left-24 top-8 h-72 w-72 rounded-full bg-rose-300/30 blur-3xl" />
+        <div className="absolute right-[-72px] top-24 h-96 w-96 rounded-full bg-amber-200/20 blur-3xl" />
+        <div className="absolute bottom-0 left-1/2 h-80 w-[42rem] -translate-x-1/2 rounded-full bg-black/40 blur-3xl" />
       </div>
       <input
         ref={nativePhotoInputRef}
@@ -842,274 +867,276 @@ export function GuestBooth({
         Event title: {title}. Guest route: {guestPath}. Dashboard route:{" "}
         {dashboardPath}. Max video config: {effectiveMaxVideoSeconds}.
       </p>
-      <section className="relative z-10 mx-auto flex w-full max-w-7xl flex-col gap-8 px-3 py-3 pb-32 sm:px-3 sm:pb-36 lg:px-12 lg:pb-8">
-        <header className="overflow-hidden  bg-white/86 px-6 py-6 shadow-[0_24px_80px_rgba(120,96,76,0.10)] backdrop-blur-2xl sm:px-8 sm:py-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <h1 className="font-[family-name:var(--font-display)] text-5xl font-semibold tracking-[0.02em] text-slate-900 sm:text-6xl lg:text-7xl">
-                {coupleNames}
-              </h1>
-              {/* <p className="mt-3 text-sm font-medium uppercase tracking-[0.3em] text-stone-600 sm:text-base">
-                {title}
-              </p> */}
-              <p className="mt-4 max-w-2xl text-base leading-6 text-stone-600 sm:text-lg">
-                Podijelite uspomene s nama.
-              </p>
-            </div>
+      <section className="relative z-10 flex min-h-screen items-center justify-center px-4 py-8 sm:px-8">
+        <div className="w-full max-w-4xl rounded-[2.25rem] border border-white/20 bg-black/35 px-6 py-10 text-center shadow-[0_40px_90px_rgba(0,0,0,0.5)]  sm:px-10 sm:py-14">
+          <h1 className="font-[family-name:var(--font-display)] text-5xl font-semibold tracking-[0.02em] text-white sm:text-7xl">
+            {coupleNames}
+          </h1>
+          <p className="mt-4 text-sm font-semibold text-white/85 sm:text-base">
+            {title}
+          </p>
+
+          <div className="mx-auto mt-10 grid max-w-xl grid-cols-2 gap-3 sm:gap-4">
+            <button
+              type="button"
+              onClick={triggerNativePhotoCapture}
+              className="rounded-full border border-rose-200 bg-rose-200 px-5 py-4 text-sm font-semibold text-rose-900 shadow-lg shadow-rose-300/30 transition hover:bg-rose-300 disabled:opacity-50"
+              disabled={isPublishing || isPreparingVideo}
+            >
+              Slikaj
+            </button>
+            <button
+              type="button"
+              onClick={triggerNativeVideoCapture}
+              className="rounded-full border border-white/30 bg-white/15 px-5 py-4 text-sm font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
+              disabled={isPublishing || isPreparingVideo}
+            >
+              Snimi
+            </button>
           </div>
-        </header>
 
-        <div
-          className={`grid gap-6 ${capturedMedia ? "lg:grid-cols-[1.05fr_0.95fr]" : ""}`}
-        >
+          <div className="mt-5">
+            <button
+              type="button"
+              onClick={() => setIsGalleryOpen(true)}
+              className="rounded-full border border-white/35 bg-black/30 px-6 py-3 text-sm font-semibold text-white transition hover:bg-black/45"
+            >
+              Otvori galeriju slika
+            </button>
+          </div>
+
           {capturedMedia && (
-            <section className="bg-white/88 p-4 shadow-[0_24px_80px_rgba(120,96,76,0.10)] backdrop-blur-2xl sm:p-6">
-              <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_0.8fr]">
-                <div className="space-y-4">
-                  <div className="relative overflow-hidden rounded-[2rem] border border-stone-200 bg-gradient-to-b from-white to-stone-50/70">
-                    <div className="relative flex min-h-[420px] items-center justify-center p-4">
-                      {capturedMedia.kind === "video" ? (
-                        <video
-                          src={capturedMedia.previewUrl}
-                          controls
-                          playsInline
-                          onLoadedData={() => setIsPreviewLoading(false)}
-                          onError={() => setIsPreviewLoading(false)}
-                          className="max-h-[420px] w-full rounded-[1.5rem] object-cover shadow-2xl shadow-stone-900/10"
-                        />
-                      ) : (
-                        <Image
-                          src={capturedMedia.previewUrl}
-                          alt="Captured preview"
-                          width={1280}
-                          height={720}
-                          unoptimized
-                          onLoad={() => setIsPreviewLoading(false)}
-                          onError={() => setIsPreviewLoading(false)}
-                          className="max-h-[420px] w-full rounded-[1.5rem] object-cover shadow-2xl shadow-stone-900/10"
-                        />
-                      )}
+            <div className="mx-auto mt-8 max-w-2xl rounded-3xl border border-white/20 bg-black/45 p-4 text-left backdrop-blur-md sm:p-5">
+              <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-black/50">
+                <div className="relative flex min-h-[240px] items-center justify-center p-2">
+                  {capturedMedia.kind === "video" ? (
+                    <video
+                      src={capturedMedia.previewUrl}
+                      controls
+                      playsInline
+                      onLoadedData={() => setIsPreviewLoading(false)}
+                      onError={() => setIsPreviewLoading(false)}
+                      className="max-h-[360px] w-full rounded-xl object-cover"
+                    />
+                  ) : (
+                    <Image
+                      src={capturedMedia.previewUrl}
+                      alt="Captured preview"
+                      width={1280}
+                      height={720}
+                      unoptimized
+                      onLoad={() => setIsPreviewLoading(false)}
+                      onError={() => setIsPreviewLoading(false)}
+                      className="max-h-[360px] w-full rounded-xl object-cover"
+                    />
+                  )}
 
-                      {isPreviewLoading && (
-                        <div className="absolute inset-4 z-20 flex items-center justify-center rounded-[1.5rem] bg-black/35 backdrop-blur-[1px]">
-                          <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/30 bg-white/85 px-5 py-4 text-center">
-                            <span className="loading-spinner h-7 w-7 rounded-full border-4 border-rose-200 border-t-rose-500" />
-                            <p className="text-sm font-semibold text-stone-800">
-                              Ucitavam preview...
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
-                      {capturedMedia.kind === "video" &&
-                        typeof capturedMedia.durationSeconds === "number" && (
-                          <span className="absolute left-6 top-6 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold tracking-wide text-white">
-                            {formatDuration(capturedMedia.durationSeconds)}
-                          </span>
-                        )}
-                    </div>
-                  </div>
-
-                  {(guestName.trim() || caption.trim()) && (
-                    <div className="rounded-[1.25rem] border border-stone-200 bg-white/84 px-4 py-3 shadow-sm">
-                      {guestName.trim() && (
-                        <p className="font-[family-name:var(--font-display)] text-lg font-semibold text-slate-900">
-                          {guestName.trim()}
+                  {isPreviewLoading && (
+                    <div className="absolute inset-2 z-20 flex items-center justify-center rounded-xl bg-black/55">
+                      <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/30 bg-black/55 px-4 py-3 text-center">
+                        <span className="loading-spinner h-6 w-6 rounded-full border-4 border-rose-200 border-t-rose-500" />
+                        <p className="text-xs font-semibold text-white">
+                          Ucitavam preview...
                         </p>
-                      )}
-                      {caption.trim() && (
-                        <p className="mt-1 text-sm leading-6 text-stone-600">
-                          {caption.trim()}
-                        </p>
-                      )}
+                      </div>
                     </div>
                   )}
 
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      onClick={deleteCapture}
-                      className="rounded-full border border-stone-200 bg-stone-50 px-5 py-3 text-sm font-semibold text-stone-700 transition hover:border-stone-300 hover:bg-stone-100 disabled:opacity-50"
-                      disabled={isPublishing || isPreparingVideo}
-                    >
-                      Izbriši
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={resetCapture}
-                      className="rounded-full border border-stone-200 bg-white px-5 py-3 text-sm font-semibold text-stone-700 transition hover:border-stone-300 hover:bg-stone-50 disabled:opacity-50"
-                      disabled={isPublishing || isPreparingVideo}
-                    >
-                      Ponovi
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={publishCurrent}
-                      className="rounded-full border border-rose-200 bg-rose-200 px-5 py-3 text-sm font-semibold text-rose-900 shadow-lg shadow-rose-200/45 transition hover:bg-rose-300 disabled:opacity-50"
-                      disabled={isPublishing || isPreparingVideo}
-                    >
-                      {isPublishing ? "Objavljujem..." : "Objavi"}
-                    </button>
-                  </div>
-
-                  {isPreparingVideo && (
-                    <p className="text-sm text-stone-500">
-                      Kompresiram video za upload...
-                    </p>
-                  )}
-                  {publishError && (
-                    <p className="text-sm text-rose-600">{publishError}</p>
-                  )}
+                  {capturedMedia.kind === "video" &&
+                    typeof capturedMedia.durationSeconds === "number" && (
+                      <span className="absolute left-4 top-4 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold tracking-wide text-white">
+                        {formatDuration(capturedMedia.durationSeconds)}
+                      </span>
+                    )}
                 </div>
-
-                <aside className="space-y-4 rounded-[1.75rem] border border-stone-200 bg-white/84 p-4 shadow-sm">
-                  <label className="block text-sm text-stone-600">
-                    Ime gosta (opcijski)
-                    <input
-                      value={guestName}
-                      onChange={(event) => setGuestName(event.target.value)}
-                      placeholder="Opcijski, upiši svoje ime..."
-                      className="mt-2 w-full rounded-2xl border border-stone-200 bg-white/92 px-4 py-3 text-slate-900 outline-none placeholder:text-stone-400 focus:border-stone-400 focus:ring-2 focus:ring-stone-200/70"
-                    />
-                  </label>
-                  <label className="block text-sm text-stone-600">
-                    Mali opis / uspomena (opcijski)
-                    <textarea
-                      value={caption}
-                      onChange={(event) => setCaption(event.target.value)}
-                      placeholder="Napiši malu uspomenu..."
-                      rows={6}
-                      className="mt-2 w-full rounded-2xl border border-stone-200 bg-white/92 px-4 py-3 text-slate-900 outline-none placeholder:text-stone-400 focus:border-stone-400 focus:ring-2 focus:ring-stone-200/70"
-                    />
-                  </label>
-                </aside>
               </div>
-            </section>
-          )}
 
-          <section className="bg-white/88 p-3 shadow-[0_24px_80px_rgba(120,96,76,0.10)] backdrop-blur-2xl sm:p-6">
-            <div className="mb-4 flex flex-wrap gap-2">
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="text-sm text-white/90">
+                  Ime gosta (opcijski)
+                  <input
+                    value={guestName}
+                    onChange={(event) => setGuestName(event.target.value)}
+                    placeholder="Opcijski, upiši svoje ime..."
+                    className="mt-2 w-full rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-white outline-none placeholder:text-white/60 focus:border-white/35"
+                  />
+                </label>
+                <label className="text-sm text-white/90">
+                  Mali opis / uspomena
+                  <input
+                    value={caption}
+                    onChange={(event) => setCaption(event.target.value)}
+                    placeholder="Napiši malu uspomenu..."
+                    className="mt-2 w-full rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-white outline-none placeholder:text-white/60 focus:border-white/35"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={deleteCapture}
+                  className="rounded-full border border-white/20 bg-black/35 px-4 py-2 text-sm font-semibold text-white transition hover:bg-black/55 disabled:opacity-50"
+                  disabled={isPublishing || isPreparingVideo}
+                >
+                  Izbrisi
+                </button>
+                <button
+                  type="button"
+                  onClick={resetCapture}
+                  className="rounded-full border border-white/20 bg-black/35 px-4 py-2 text-sm font-semibold text-white transition hover:bg-black/55 disabled:opacity-50"
+                  disabled={isPublishing || isPreparingVideo}
+                >
+                  Ponovi
+                </button>
+                <button
+                  type="button"
+                  onClick={publishCurrent}
+                  className="rounded-full border border-rose-200 bg-rose-200 px-4 py-2 text-sm font-semibold text-rose-900 transition hover:bg-rose-300 disabled:opacity-50"
+                  disabled={isPublishing || isPreparingVideo}
+                >
+                  {isPublishing ? "Objavljujem..." : "Objavi"}
+                </button>
+              </div>
+
+              {publishError && (
+                <p className="mt-3 text-sm text-rose-300">{publishError}</p>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <div
+        className={`fixed inset-y-0 left-0 z-[72] w-full max-w-5xl border-r border-white/15  backdrop-blur-xl transition-transform duration-500 ${
+          isGalleryOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="flex h-full flex-col">
+          <div className="flex items-center justify-between border-b border-white/10 px-5 py-4 sm:px-8">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-white/65">
+                Guest galerija
+              </p>
+              <h2 className="mt-1 text-2xl font-semibold text-white sm:text-3xl">
+                Uspomene s vjencanja
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsGalleryOpen(false)}
+              className="rounded-full border border-white/25 bg-white/10 p-2 text-white transition hover:bg-white/20"
+              aria-label="Zatvori galeriju"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+
+          <div className="px-5 pb-4 pt-4 sm:px-8">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setGalleryFilter("all")}
                 className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                   galleryFilter === "all"
-                    ? "border border-stone-300 bg-stone-100 text-stone-800 shadow-sm"
-                    : "border border-stone-200 bg-white/80 text-stone-700 hover:border-stone-300 hover:bg-stone-50"
+                    ? "border border-white/40 bg-white text-slate-900"
+                    : "border border-white/20 bg-white/10 text-white hover:bg-white/20"
                 }`}
               >
-                Sve
+                Sve ({publishedItems.length})
               </button>
               <button
                 type="button"
                 onClick={() => setGalleryFilter("photo")}
                 className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                   galleryFilter === "photo"
-                    ? "border border-stone-300 bg-stone-100 text-stone-800 shadow-sm"
-                    : "border border-stone-200 bg-white/80 text-stone-700 hover:border-stone-300 hover:bg-stone-50"
+                    ? "border border-white/40 bg-white text-slate-900"
+                    : "border border-white/20 bg-white/10 text-white hover:bg-white/20"
                 }`}
               >
-                Slike
+                Slike ({photoCount})
               </button>
               <button
                 type="button"
                 onClick={() => setGalleryFilter("video")}
                 className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                   galleryFilter === "video"
-                    ? "border border-stone-300 bg-stone-100 text-stone-800 shadow-sm"
-                    : "border border-stone-200 bg-white/80 text-stone-700 hover:border-stone-300 hover:bg-stone-50"
+                    ? "border border-white/40 bg-white text-slate-900"
+                    : "border border-white/20 bg-white/10 text-white hover:bg-white/20"
                 }`}
               >
-                Video
+                Video ({videoCount})
               </button>
             </div>
+          </div>
 
-            <div className="space-y-4">
-              {filteredPublishedItems.length > 0 ? (
-                <div className="grid grid-cols-3 gap-1.5 sm:gap-3">
-                  {filteredPublishedItems.map((item, index) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setActiveViewerIndex(index)}
-                      className="group relative aspect-square w-full overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm"
-                    >
-                      {item.kind === "video" ? (
-                        <video
-                          src={item.url}
-                          muted
-                          playsInline
-                          preload="metadata"
-                          className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-                        />
-                      ) : (
-                        <Image
-                          src={item.url}
-                          alt="Published item"
-                          fill
-                          sizes="(max-width: 640px) 25vw, (max-width: 1024px) 16vw, 12vw"
-                          className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-                        />
+          <div className="flex-1 overflow-y-auto px-5 pb-8 sm:px-8">
+            {filteredPublishedItems.length > 0 ? (
+              <div className="grid grid-cols-3 gap-3">
+                {filteredPublishedItems.map((item, index) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveViewerIndex(index)}
+                    className="group relative aspect-square overflow-hidden rounded-2xl border border-white/15 bg-black/35"
+                  >
+                    {item.kind === "video" ? (
+                      <video
+                        src={item.url}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                      />
+                    ) : (
+                      <Image
+                        src={item.url}
+                        alt="Published item"
+                        fill
+                        sizes="(max-width: 640px) 45vw, (max-width: 1024px) 30vw, 22vw"
+                        className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                      />
+                    )}
+                    <span className="absolute bottom-2 right-2 rounded-full border border-white/30 bg-black/45 p-1.5 text-white backdrop-blur-sm">
+                      {item.kind === "video" ? <VideoIcon /> : <ImageIcon />}
+                    </span>
+
+                    {item.kind === "video" &&
+                      typeof item.durationSeconds === "number" && (
+                        <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[11px] font-semibold text-white">
+                          {formatDuration(item.durationSeconds)}
+                        </span>
                       )}
-                      <span className="absolute bottom-2 right-2 rounded-full border border-stone-200 bg-white/90 p-1.5 text-stone-700 shadow-sm backdrop-blur-sm">
-                        {item.kind === "video" ? <VideoIcon /> : <ImageIcon />}
-                      </span>
-
-                      {item.kind === "video" &&
-                        typeof item.durationSeconds === "number" && (
-                          <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[11px] font-semibold text-white">
-                            {formatDuration(item.durationSeconds)}
-                          </span>
-                        )}
-                    </button>
-                  ))}
-                </div>
-              ) : isLoadingRecent ? (
-                <div className="rounded-[1.5rem] border border-dashed border-stone-200 bg-white/75 px-6 py-12 text-center text-sm leading-7 text-stone-500">
-                  Loading shared event feed...
-                </div>
-              ) : (
-                <div className="rounded-[1.5rem] border border-dashed border-stone-200 bg-white/75 px-6 py-12 text-center text-sm leading-7 text-stone-500">
-                  {publishedItems.length === 0
-                    ? "After publish, entries are sent to Sanity and show status in the dashboard moderation queue."
-                    : "Nema stavki za odabrani filter."}
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
-      </section>
-
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200/80 bg-white/90 px-3 py-3 shadow-[0_-20px_60px_rgba(120,96,76,0.10)] backdrop-blur-2xl">
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}
-          className="mx-auto flex w-full max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-center"
-        >
-          <button
-            type="button"
-            onClick={triggerNativePhotoCapture}
-            className="w-full rounded-full border border-rose-200 bg-rose-200 px-5 py-4 text-sm font-semibold text-rose-900 shadow-lg shadow-rose-200/45 transition hover:bg-rose-300 disabled:opacity-50 sm:w-auto sm:min-w-[180px]"
-            disabled={isPublishing || isPreparingVideo}
-          >
-            📸 Slikaj
-          </button>
-
-          <button
-            type="button"
-            onClick={triggerNativeVideoCapture}
-            className="w-full rounded-full border border-stone-200 bg-white px-5 py-4 text-sm font-semibold text-stone-700 shadow-lg shadow-stone-100/40 transition hover:border-stone-300 hover:bg-stone-50 disabled:opacity-50 sm:w-auto sm:min-w-[180px]"
-            disabled={isPublishing || isPreparingVideo}
-          >
-            🎥 Snimi
-          </button>
+                  </button>
+                ))}
+              </div>
+            ) : isLoadingRecent ? (
+              <div className="rounded-[1.5rem] border border-dashed border-white/20 bg-white/5 px-6 py-12 text-center text-sm leading-7 text-white/75">
+                Ucitavam galeriju...
+              </div>
+            ) : (
+              <div className="rounded-[1.5rem] border border-dashed border-white/20 bg-white/5 px-6 py-12 text-center text-sm leading-7 text-white/75">
+                {publishedItems.length === 0
+                  ? "Jos nema objavljenih uspomena u galeriji."
+                  : "Nema stavki za odabrani filter."}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
+      {isGalleryOpen && (
+        <button
+          type="button"
+          aria-label="Zatvori galeriju pozadinskim klikom"
+          onClick={() => setIsGalleryOpen(false)}
+          className="fixed inset-0 z-[71] bg-black/45"
+        />
+      )}
+
       {activeViewerItem && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-md sm:px-8"
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-md sm:px-8"
           onClick={() => setActiveViewerIndex(null)}
         >
           <button

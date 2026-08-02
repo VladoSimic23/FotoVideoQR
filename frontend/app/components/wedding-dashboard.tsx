@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 type DashboardMedia = {
   _id: string;
@@ -30,6 +30,10 @@ type WeddingEvent = {
   accentColor?: string;
   welcomeCopy?: string;
   ceremonyDate?: string;
+  heroImage?: {
+    alt?: string;
+    asset?: { url?: string };
+  };
 };
 
 type DashboardSummary = {
@@ -72,6 +76,11 @@ export function WeddingDashboard({
     event.guestUploadEnabled ?? true,
   );
   const [isTogglingUploads, setIsTogglingUploads] = useState(false);
+  const [isUploadingHeroImage, setIsUploadingHeroImage] = useState(false);
+  const [heroImageUrl, setHeroImageUrl] = useState(
+    event.heroImage?.asset?.url ?? "",
+  );
+  const heroUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const cards = useMemo(
     () => [
@@ -183,6 +192,57 @@ export function WeddingDashboard({
       );
     } finally {
       setIsTogglingUploads(false);
+    }
+  }
+
+  async function uploadHeroImage(
+    eventInput: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const selectedFile = eventInput.target.files?.[0];
+    eventInput.target.value = "";
+
+    if (!selectedFile || !eventId) {
+      return;
+    }
+
+    if (!selectedFile.type.startsWith("image/")) {
+      setError("Molimo odaberite sliku za pozadinu.");
+      return;
+    }
+
+    setIsUploadingHeroImage(true);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("heroImage", selectedFile);
+
+      const response = await fetch(`/api/dashboard/events/${eventId}`, {
+        method: "PATCH",
+        body: formData,
+      });
+
+      const result = (await response.json()) as {
+        ok: boolean;
+        error?: string;
+        heroImageUrl?: string;
+      };
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error ?? "Failed to upload background image.");
+      }
+
+      if (result.heroImageUrl) {
+        setHeroImageUrl(result.heroImageUrl);
+      }
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof Error
+          ? uploadError.message
+          : "Failed to upload background image.",
+      );
+    } finally {
+      setIsUploadingHeroImage(false);
     }
   }
 
@@ -356,6 +416,58 @@ export function WeddingDashboard({
           </section>
 
           <aside className="space-y-6">
+            <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6 backdrop-blur-xl">
+              <p className="text-sm text-slate-300">Guest booth background</p>
+              <h2 className="mt-1 text-2xl font-semibold text-white">
+                Full-screen pozadinska slika
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                Ova slika se prikazuje u guest-boothu preko cijelog ekrana.
+              </p>
+
+              <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/55">
+                {heroImageUrl ? (
+                  <Image
+                    src={heroImageUrl}
+                    alt={event.coupleNames ?? event.title}
+                    width={1400}
+                    height={900}
+                    className="h-52 w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-52 items-center justify-center bg-[linear-gradient(135deg,_rgba(15,23,42,0.95),_rgba(248,113,113,0.35))] px-6 text-center text-sm text-white/85">
+                    Nema postavljene pozadinske slike. Dodajte sliku iz
+                    dashboarda.
+                  </div>
+                )}
+              </div>
+
+              <input
+                ref={heroUploadInputRef}
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={(eventInput) => void uploadHeroImage(eventInput)}
+              />
+
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => heroUploadInputRef.current?.click()}
+                  disabled={!eventId || isUploadingHeroImage}
+                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white transition hover:bg-white/10 disabled:opacity-50"
+                >
+                  {isUploadingHeroImage
+                    ? "Uploadam pozadinu..."
+                    : "Dodaj / promijeni pozadinu"}
+                </button>
+                <p className="text-xs text-slate-400">
+                  Preporuka: horizontalna slika visoke rezolucije (npr.
+                  1920x1080).
+                </p>
+              </div>
+            </section>
+
             <section className="rounded-[2rem] border border-white/10 bg-[#111b33]/80 p-6 backdrop-blur-xl">
               <p className="text-sm text-slate-300">Wedding settings</p>
               <h2 className="mt-1 text-2xl font-semibold text-white">

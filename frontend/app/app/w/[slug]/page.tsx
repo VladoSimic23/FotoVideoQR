@@ -30,6 +30,7 @@ export default async function GuestWeddingPage({
       eventSlug={guestSlug}
       guestPath={`/w/${guestSlug}`}
       dashboardPath={`/dashboard/${dashboardSlug}`}
+      backgroundImageUrl={event?.heroImage?.asset?.url}
     />
   );
 }
