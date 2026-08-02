@@ -853,8 +853,7 @@ export function GuestBooth({
                 {title}
               </p> */}
               <p className="mt-4 max-w-2xl text-base leading-6 text-stone-600 sm:text-lg">
-                Podijelite s nama trenutke, osmijehe i male uspomene iz ovog
-                dana.
+                Podijelite uspomene s nama.
               </p>
             </div>
           </div>
@@ -1094,7 +1093,7 @@ export function GuestBooth({
             className="w-full rounded-full border border-rose-200 bg-rose-200 px-5 py-4 text-sm font-semibold text-rose-900 shadow-lg shadow-rose-200/45 transition hover:bg-rose-300 disabled:opacity-50 sm:w-auto sm:min-w-[180px]"
             disabled={isPublishing || isPreparingVideo}
           >
-            📸 Uslikaj fotografiju
+            📸 Slikaj
           </button>
 
           <button
@@ -1103,7 +1102,7 @@ export function GuestBooth({
             className="w-full rounded-full border border-stone-200 bg-white px-5 py-4 text-sm font-semibold text-stone-700 shadow-lg shadow-stone-100/40 transition hover:border-stone-300 hover:bg-stone-50 disabled:opacity-50 sm:w-auto sm:min-w-[180px]"
             disabled={isPublishing || isPreparingVideo}
           >
-            🎥 Snimi video
+            🎥 Snimi
           </button>
         </div>
       </div>
