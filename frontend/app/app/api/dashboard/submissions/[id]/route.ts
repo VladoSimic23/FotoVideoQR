@@ -50,7 +50,7 @@ async function getSummary(eventId: string) {
         visibleInGallery,
         caption,
         "image": image{asset->{url}},
-        "video": video{asset->{url}}
+        "video": coalesce(videoCompat, video){asset->{url}}
       }
     }`,
     { eventId },

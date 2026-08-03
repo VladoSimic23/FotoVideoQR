@@ -124,7 +124,7 @@ const mediaProjection = `{
       metadata{lqip, dimensions}
     }
   },
-  "video": video{
+  "video": coalesce(videoCompat, video){
     asset->{
       url,
       mimeType,

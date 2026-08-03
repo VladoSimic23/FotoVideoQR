@@ -1,5 +1,10 @@
 import { createClient } from "@sanity/client";
 import { NextResponse } from "next/server";
+import { spawn } from "node:child_process";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import ffmpegPath from "ffmpeg-static";
 
 export const runtime = "nodejs";
 
@@ -29,6 +34,92 @@ const readClient = createClient({
 
 function isInvalidSlug(value: string | null) {
   return !value || value === "undefined" || value === "null";
+}
+
+function runCommand(command: string, args: string[]) {
+  return new Promise<void>((resolve, reject) => {
+    const process = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stderr = "";
+
+    process.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+
+    process.on("error", (error) => {
+      reject(error);
+    });
+
+    process.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(
+        new Error(
+          `Command failed (${code ?? "unknown"}). ${stderr || "No stderr."}`,
+        ),
+      );
+    });
+  });
+}
+
+async function transcodeToCompatMp4(sourceUrl: string, sourceName?: string) {
+  if (!ffmpegPath) {
+    throw new Error("ffmpeg binary is not available on this server.");
+  }
+
+  const sourceResponse = await fetch(sourceUrl, { cache: "no-store" });
+  if (!sourceResponse.ok) {
+    throw new Error(
+      `Failed to download source video for compatibility transcode (${sourceResponse.status}).`,
+    );
+  }
+
+  const sourceBuffer = Buffer.from(await sourceResponse.arrayBuffer());
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "fvq-video-"));
+  const inputPath = path.join(tempDir, "input-video");
+  const outputPath = path.join(tempDir, "output-compat.mp4");
+
+  try {
+    await fs.writeFile(inputPath, sourceBuffer);
+
+    await runCommand(ffmpegPath, [
+      "-y",
+      "-i",
+      inputPath,
+      "-c:v",
+      "libx264",
+      "-profile:v",
+      "baseline",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      "-preset",
+      "veryfast",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      outputPath,
+    ]);
+
+    const outputBuffer = await fs.readFile(outputPath);
+    const baseName = sourceName?.replace(/\.[^.]+$/, "") || "guest-video";
+
+    const compatAsset = await writeClient.assets.upload("file", outputBuffer, {
+      filename: `${baseName}-compat.mp4`,
+      contentType: "video/mp4",
+    });
+
+    return compatAsset;
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
 }
 
 export async function GET(request: Request) {
@@ -78,7 +169,7 @@ export async function GET(request: Request) {
         guestName,
         caption,
         "image": image{asset->{url}},
-        "video": video{asset->{url}}
+        "video": coalesce(videoCompat, video){asset->{url}}
       }`,
       { eventId: weddingEvent._id },
     );
@@ -291,6 +382,8 @@ export async function POST(request: Request) {
     }
 
     let uploadedAsset: { _id: string; url?: string };
+    let compatVideoAsset: { _id: string; url?: string } | null = null;
+    let compatibilityWarning: string | undefined;
 
     if (mediaFile) {
       uploadedAsset =
@@ -318,6 +411,34 @@ export async function POST(request: Request) {
         { assetId: uploadedAsset._id },
       );
       uploadedAssetUrl = assetDocument?.url;
+    }
+
+    if (mediaKind === "video") {
+      if (!uploadedAssetUrl) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Uploaded video asset URL is missing.",
+          },
+          { status: 500 },
+        );
+      }
+
+      try {
+        const compatAsset = await transcodeToCompatMp4(
+          uploadedAssetUrl,
+          mediaFile?.name,
+        );
+        compatVideoAsset = {
+          _id: compatAsset._id,
+          url: compatAsset.url,
+        };
+      } catch (transcodeError) {
+        compatibilityWarning =
+          transcodeError instanceof Error
+            ? `Compatibility transcode failed: ${transcodeError.message}`
+            : "Compatibility transcode failed.";
+      }
     }
 
     const now = new Date().toISOString();
@@ -363,15 +484,28 @@ export async function POST(request: Request) {
               },
             }
           : undefined,
+      videoCompat:
+        mediaKind === "video" && compatVideoAsset
+          ? {
+              _type: "file",
+              asset: {
+                _type: "reference",
+                _ref: compatVideoAsset._id,
+              },
+            }
+          : undefined,
     });
+
+    const playbackAssetUrl = compatVideoAsset?.url || uploadedAssetUrl;
 
     return NextResponse.json({
       ok: true,
       submissionId: submission._id,
       status,
       visibleInGallery,
-      assetUrl: uploadedAssetUrl,
+      assetUrl: playbackAssetUrl,
       moderationMode,
+      compatibilityWarning,
     });
   } catch (error) {
     return NextResponse.json(
