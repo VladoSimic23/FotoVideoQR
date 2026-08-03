@@ -83,6 +83,9 @@ export function GuestBooth({
   const [showIntroOverlay, setShowIntroOverlay] = useState(true);
   const [introOverlayExiting, setIntroOverlayExiting] = useState(false);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [viewerVideoFailedId, setViewerVideoFailedId] = useState<string | null>(
+    null,
+  );
   const touchStartXRef = useRef<number | null>(null);
 
   const filteredPublishedItems =
@@ -686,7 +689,13 @@ export function GuestBooth({
       ? filteredPublishedItems[activeViewerIndex]
       : null;
 
+  function openViewerAtIndex(index: number) {
+    setViewerVideoFailedId(null);
+    setActiveViewerIndex(index);
+  }
+
   function goToPreviousInViewer() {
+    setViewerVideoFailedId(null);
     setActiveViewerIndex((current) => {
       const itemsCount = filteredPublishedItems.length;
 
@@ -701,6 +710,7 @@ export function GuestBooth({
   }
 
   function goToNextInViewer() {
+    setViewerVideoFailedId(null);
     setActiveViewerIndex((current) => {
       const itemsCount = filteredPublishedItems.length;
 
@@ -1309,7 +1319,7 @@ export function GuestBooth({
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setActiveViewerIndex(index)}
+                    onClick={() => openViewerAtIndex(index)}
                     className="group relative aspect-square overflow-hidden rounded-2xl border border-white/15 bg-black/35"
                   >
                     {item.kind === "video" ? (
@@ -1401,13 +1411,43 @@ export function GuestBooth({
           >
             <div className="max-h-[82vh] overflow-hidden">
               {activeViewerItem.kind === "video" ? (
-                <video
-                  src={activeViewerItem.url}
-                  controls
-                  playsInline
-                  preload="metadata"
-                  className="max-h-[82vh] w-full bg-black object-contain"
-                />
+                <div className="relative">
+                  <video
+                    key={activeViewerItem.id}
+                    src={activeViewerItem.url}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="max-h-[82vh] w-full bg-black object-contain"
+                    onError={() => {
+                      setViewerVideoFailedId(activeViewerItem.id);
+                    }}
+                  />
+                  {viewerVideoFailedId === activeViewerItem.id && (
+                    <div className="absolute inset-0 z-10 flex items-end bg-gradient-to-t from-black/80 via-black/35 to-transparent p-4 sm:p-6">
+                      <div className="max-w-xl rounded-2xl border border-white/20 bg-black/65 px-4 py-3 text-left text-white backdrop-blur-md">
+                        <p className="text-sm font-semibold">
+                          Ovaj uredaj ne uspijeva prikazati video track (audio
+                          je dostupan).
+                        </p>
+                        <p className="mt-1 text-xs text-white/80">
+                          Pokusaj otvoriti original video u novom tabu ili
+                          koristeci drugi browser.
+                        </p>
+                        <div className="mt-3">
+                          <a
+                            href={activeViewerItem.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex rounded-full border border-white/30 bg-white/15 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/25"
+                          >
+                            Otvori original video
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <Image
                   src={activeViewerItem.url}
