@@ -1418,21 +1418,7 @@ export function GuestBooth({
                     controls
                     preload="metadata"
                     className="max-h-[82vh] w-full bg-black object-contain"
-                    onLoadedData={() => {
-                      setViewerVideoFailedId((current) =>
-                        current === activeViewerItem.id ? null : current,
-                      );
-                    }}
                     onError={() => {
-                      setViewerVideoFailedId(activeViewerItem.id);
-                    }}
-                    onStalled={() => {
-                      setViewerVideoFailedId(activeViewerItem.id);
-                    }}
-                    onAbort={() => {
-                      setViewerVideoFailedId(activeViewerItem.id);
-                    }}
-                    onEmptied={() => {
                       setViewerVideoFailedId(activeViewerItem.id);
                     }}
                   />
@@ -1460,16 +1446,6 @@ export function GuestBooth({
                       </div>
                     </div>
                   )}
-                  <div className="absolute bottom-3 right-3 z-[11]">
-                    <a
-                      href={activeViewerItem.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex rounded-full border border-white/30 bg-black/55 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-black/75"
-                    >
-                      Otvori video izvan preglednika
-                    </a>
-                  </div>
                 </div>
               ) : (
                 <Image

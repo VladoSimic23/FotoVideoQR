@@ -76,16 +76,6 @@ export default defineType({
       },
     }),
     defineField({
-      name: 'videoCompat',
-      title: 'Video (compatibility MP4)',
-      type: 'file',
-      description:
-        'Optional transcoded fallback for older devices. Prefer this for playback when available.',
-      options: {
-        accept: 'video/mp4',
-      },
-    }),
-    defineField({
       name: 'caption',
       title: 'Caption',
       type: 'text',
