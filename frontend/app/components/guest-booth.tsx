@@ -113,6 +113,71 @@ export function GuestBooth({
     return Math.min(mediaLimit, MAX_REQUEST_UPLOAD_BYTES);
   }
 
+  function formatDirectUploadError(
+    error: unknown,
+    mediaFile: File,
+    kind: "photo" | "video",
+  ) {
+    const rawMessage =
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "Unknown upload error.";
+    const normalized = rawMessage.toLowerCase();
+
+    if (
+      normalized.includes("request error while attempting to reach") ||
+      normalized.includes("failed to fetch") ||
+      normalized.includes("networkerror") ||
+      normalized.includes("network request failed") ||
+      normalized.includes("load failed")
+    ) {
+      return `Upload nije uspio zbog mreze ili CORS pravila. Provjeri da je origin dopusten u Sanity CORS-u i da uredaj nema VPN/adblock/private DNS. Detalj: ${rawMessage}`;
+    }
+
+    if (normalized.includes("cors")) {
+      return `CORS blokira upload za ovaj uredaj/origin. Dodaj tacan URL aplikacije u Sanity Manage > API > CORS Origins. Detalj: ${rawMessage}`;
+    }
+
+    if (
+      normalized.includes("unauthorized") ||
+      normalized.includes("forbidden") ||
+      normalized.includes("permission") ||
+      normalized.includes("token")
+    ) {
+      return `Upload token nema potrebna prava za assets upload. Provjeri NEXT_PUBLIC_SANITY_UPLOAD_TOKEN dozvole. Detalj: ${rawMessage}`;
+    }
+
+    if (
+      normalized.includes("payload too large") ||
+      normalized.includes("entity too large") ||
+      normalized.includes("413")
+    ) {
+      return kind === "video"
+        ? "Video je prevelik za upload (server/network limit). Pokusaj kraci klip ili manju rezoluciju."
+        : "Slika je prevelika za upload (server/network limit).";
+    }
+
+    return `Upload nije uspio. Tip: ${mediaFile.type || "unknown"}, velicina: ${Math.round(mediaFile.size / 1024 / 1024)} MB. Detalj: ${rawMessage}`;
+  }
+
+  async function extractSubmissionError(response: Response) {
+    const responseContentType = response.headers.get("content-type") ?? "";
+
+    if (responseContentType.includes("application/json")) {
+      const parsed = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+      };
+
+      return parsed.error ?? "Submission API returned an error.";
+    }
+
+    const text = (await response.text()).trim();
+    return text || "Submission API returned non-JSON error.";
+  }
+
   const loadRecentPublished = useCallback(
     async (showLoading = true) => {
       if (!eventSlug) return;
@@ -355,20 +420,36 @@ export function GuestBooth({
         );
       }
 
-      const uploadedAsset =
-        capturedMedia.kind === "video"
-          ? await directUploadClient.assets.upload("file", capturedMedia.file, {
-              filename: capturedMedia.file.name,
-              contentType: capturedMedia.file.type || "video/webm",
-            })
-          : await directUploadClient.assets.upload(
-              "image",
-              capturedMedia.file,
-              {
-                filename: capturedMedia.file.name,
-                contentType: capturedMedia.file.type || "image/webp",
-              },
-            );
+      let uploadedAsset;
+
+      try {
+        uploadedAsset =
+          capturedMedia.kind === "video"
+            ? await directUploadClient.assets.upload(
+                "file",
+                capturedMedia.file,
+                {
+                  filename: capturedMedia.file.name,
+                  contentType: capturedMedia.file.type || "video/webm",
+                },
+              )
+            : await directUploadClient.assets.upload(
+                "image",
+                capturedMedia.file,
+                {
+                  filename: capturedMedia.file.name,
+                  contentType: capturedMedia.file.type || "image/webp",
+                },
+              );
+      } catch (uploadError) {
+        throw new Error(
+          formatDirectUploadError(
+            uploadError,
+            capturedMedia.file,
+            capturedMedia.kind,
+          ),
+        );
+      }
 
       const response = await fetch("/api/guest-submissions", {
         method: "POST",
@@ -387,7 +468,6 @@ export function GuestBooth({
         }),
       });
 
-      const responseContentType = response.headers.get("content-type") ?? "";
       let result: {
         ok: boolean;
         error?: string;
@@ -396,30 +476,46 @@ export function GuestBooth({
         status?: string;
       } | null = null;
 
-      if (responseContentType.includes("application/json")) {
-        result = (await response.json()) as {
-          ok: boolean;
-          error?: string;
-          submissionId?: string;
-          assetUrl?: string;
-          status?: string;
-        };
-      }
+      if (!response.ok) {
+        const submissionError = await extractSubmissionError(response);
+        const normalized = submissionError.toLowerCase();
 
-      if (!response.ok || !result?.ok) {
-        if (!result) {
-          const rawError = await response.text();
-          const trimmedError = rawError.trim();
-          if (
-            response.status === 413 ||
-            /entity too large|payload too large/i.test(trimmedError)
-          ) {
-            throw new Error("File is too large for upload.");
-          }
-
-          throw new Error(trimmedError || "Failed to publish submission.");
+        if (
+          response.status === 413 ||
+          normalized.includes("entity too large") ||
+          normalized.includes("payload too large")
+        ) {
+          throw new Error(
+            "Submission je odbijen jer je payload prevelik. Provjeri velicinu i duzinu videa.",
+          );
         }
 
+        if (response.status === 403) {
+          throw new Error(
+            `Submission odbijen (403). Moguce da su uploadi ugaseni u dashboardu. Detalj: ${submissionError}`,
+          );
+        }
+
+        if (response.status === 404) {
+          throw new Error(
+            `Wedding event nije pronadjen za ovaj slug. Detalj: ${submissionError}`,
+          );
+        }
+
+        throw new Error(
+          `Submission API error (${response.status}). Detalj: ${submissionError}`,
+        );
+      }
+
+      result = (await response.json()) as {
+        ok: boolean;
+        error?: string;
+        submissionId?: string;
+        assetUrl?: string;
+        status?: string;
+      };
+
+      if (!result.ok) {
         throw new Error(result.error ?? "Failed to publish submission.");
       }
 
