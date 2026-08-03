@@ -253,7 +253,7 @@ export function WeddingDashboard({
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.32em] text-cyan-100/80">
-                Bridal control panel
+                Control panel
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
                 {event.coupleNames ?? event.title}

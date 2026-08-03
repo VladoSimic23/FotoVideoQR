@@ -69,7 +69,7 @@ export async function GET(request: Request) {
         video?: { asset?: { url?: string } };
       }>
     >(
-      `*[_type == "mediaSubmission" && weddingEvent._ref == $eventId && status in ["pending", "approved", "published"]] | order(_createdAt desc)[0...8]{
+      `*[_type == "mediaSubmission" && weddingEvent._ref == $eventId && status in ["pending", "approved", "published"]] | order(_createdAt desc){
         _id,
         _createdAt,
         mediaKind,

@@ -41,7 +41,7 @@ async function getSummary(eventId: string) {
       "approved": count(*[_type == "mediaSubmission" && weddingEvent._ref == $eventId && status == "approved"]),
       "hidden": count(*[_type == "mediaSubmission" && weddingEvent._ref == $eventId && status == "hidden"]),
       "rejected": count(*[_type == "mediaSubmission" && weddingEvent._ref == $eventId && status == "rejected"]),
-      "recent": *[_type == "mediaSubmission" && weddingEvent._ref == $eventId] | order(_createdAt desc)[0...8]{
+      "recent": *[_type == "mediaSubmission" && weddingEvent._ref == $eventId] | order(_createdAt desc){
         _id,
         _createdAt,
         guestName,

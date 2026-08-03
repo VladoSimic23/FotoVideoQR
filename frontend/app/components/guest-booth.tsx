@@ -435,7 +435,7 @@ export function GuestBooth({
         caption: caption.trim() || undefined,
       };
 
-      setPublishedItems((current) => [nextItem, ...current].slice(0, 8));
+      setPublishedItems((current) => [nextItem, ...current]);
       void loadRecentPublished(false);
 
       setCaptureLabel("Published to wedding gallery queue");
@@ -868,7 +868,7 @@ export function GuestBooth({
         {dashboardPath}. Max video config: {effectiveMaxVideoSeconds}.
       </p>
       <section className="relative z-10 flex min-h-screen items-center justify-center px-4 py-8 sm:px-8">
-        <div className="w-full max-w-4xl rounded-[2.25rem] border border-white/20 bg-black/35 px-6 py-10 text-center shadow-[0_40px_90px_rgba(0,0,0,0.5)]  sm:px-10 sm:py-14">
+        <div className="w-full max-w-4xl rounded-[2.25rem] px-6 py-10 text-center sm:px-10 sm:py-14">
           <h1 className="font-[family-name:var(--font-display)] text-5xl font-semibold tracking-[0.02em] text-white sm:text-7xl">
             {coupleNames}
           </h1>
@@ -880,7 +880,7 @@ export function GuestBooth({
             <button
               type="button"
               onClick={triggerNativePhotoCapture}
-              className="rounded-full border border-rose-200 bg-rose-200 px-5 py-4 text-sm font-semibold text-rose-900 shadow-lg shadow-rose-300/30 transition hover:bg-rose-300 disabled:opacity-50"
+              className="rounded-full bg-rose-200 px-5 py-4 text-sm font-semibold text-rose-900 shadow-lg shadow-rose-300/30 transition hover:bg-rose-300 disabled:opacity-50"
               disabled={isPublishing || isPreparingVideo}
             >
               Slikaj
@@ -888,7 +888,7 @@ export function GuestBooth({
             <button
               type="button"
               onClick={triggerNativeVideoCapture}
-              className="rounded-full border border-white/30 bg-white/15 px-5 py-4 text-sm font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
+              className="rounded-full bg-white/15 px-5 py-4 text-sm font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
               disabled={isPublishing || isPreparingVideo}
             >
               Snimi
@@ -1016,7 +1016,7 @@ export function GuestBooth({
           <div className="flex items-center justify-between border-b border-white/10 px-5 py-4 sm:px-8">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-white/65">
-                Guest galerija
+                Galerija
               </p>
               <h2 className="mt-1 text-2xl font-semibold text-white sm:text-3xl">
                 Uspomene s vjencanja
