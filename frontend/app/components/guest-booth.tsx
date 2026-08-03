@@ -1313,13 +1313,14 @@ export function GuestBooth({
                     className="group relative aspect-square overflow-hidden rounded-2xl border border-white/15 bg-black/35"
                   >
                     {item.kind === "video" ? (
-                      <video
-                        src={item.url}
-                        muted
-                        playsInline
-                        preload="metadata"
-                        className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-                      />
+                      <div className="relative flex h-full w-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.16),_transparent_45%),linear-gradient(145deg,_rgba(2,6,23,0.95),_rgba(15,23,42,0.75))]">
+                        <span className="rounded-full border border-white/25 bg-black/45 p-3 text-white/95 shadow-lg">
+                          <VideoIcon />
+                        </span>
+                        <span className="absolute bottom-2 left-2 rounded-full border border-white/20 bg-black/60 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/90">
+                          Video
+                        </span>
+                      </div>
                     ) : (
                       <Image
                         src={item.url}
@@ -1404,6 +1405,7 @@ export function GuestBooth({
                   src={activeViewerItem.url}
                   controls
                   playsInline
+                  preload="metadata"
                   className="max-h-[82vh] w-full bg-black object-contain"
                 />
               ) : (
