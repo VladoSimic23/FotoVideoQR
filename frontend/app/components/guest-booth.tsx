@@ -1,6 +1,5 @@
 "use client";
 
-import { createClient } from "@sanity/client";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -33,15 +32,10 @@ const dataset = process.env.NEXT_PUBLIC_SANITY_DATASET ?? "production";
 const apiVersion = "2026-07-23";
 const directUploadToken = process.env.NEXT_PUBLIC_SANITY_UPLOAD_TOKEN;
 
-const directUploadClient = directUploadToken
-  ? createClient({
-      projectId,
-      dataset,
-      apiVersion,
-      token: directUploadToken,
-      useCdn: false,
-    })
-  : null;
+type UploadAssetResult = {
+  _id: string;
+  url?: string;
+};
 
 export function GuestBooth({
   guestPath,
@@ -73,9 +67,15 @@ export function GuestBooth({
     Boolean(eventSlug),
   );
   const [isPublishing, setIsPublishing] = useState(false);
+  const [publishStage, setPublishStage] = useState<
+    "idle" | "uploading" | "publishing"
+  >("idle");
+  const [uploadProgressPercent, setUploadProgressPercent] = useState(0);
+  const [uploadEtaSeconds, setUploadEtaSeconds] = useState<number | null>(null);
   const [isPreparingVideo, setIsPreparingVideo] = useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishSuccess, setPublishSuccess] = useState<string | null>(null);
   const [galleryFilter, setGalleryFilter] = useState<GalleryFilter>("all");
   const [activeViewerIndex, setActiveViewerIndex] = useState<number | null>(
     null,
@@ -391,6 +391,125 @@ export function GuestBooth({
     };
   }, []);
 
+  useEffect(() => {
+    if (!publishSuccess) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setPublishSuccess(null);
+    }, 3500);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [publishSuccess]);
+
+  function formatEta(seconds: number | null) {
+    if (!seconds || seconds < 1) {
+      return "< 1s";
+    }
+
+    const safeSeconds = Math.max(1, Math.round(seconds));
+    const mins = Math.floor(safeSeconds / 60);
+    const secs = safeSeconds % 60;
+
+    if (mins > 0) {
+      return `${mins}m ${secs}s`;
+    }
+
+    return `${secs}s`;
+  }
+
+  async function uploadAssetWithProgress(
+    file: File,
+    kind: "photo" | "video",
+  ): Promise<UploadAssetResult> {
+    if (!directUploadToken) {
+      throw new Error(
+        "Missing NEXT_PUBLIC_SANITY_UPLOAD_TOKEN. Add it to frontend/app/.env.local and restart Next.js.",
+      );
+    }
+
+    const endpointKind = kind === "video" ? "files" : "images";
+    const fileName = encodeURIComponent(file.name || `upload-${Date.now()}`);
+    const uploadUrl = `https://${projectId}.api.sanity.io/v${apiVersion}/assets/${endpointKind}/${dataset}?filename=${fileName}`;
+
+    return await new Promise<UploadAssetResult>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const startedAt = Date.now();
+
+      xhr.open("POST", uploadUrl);
+      xhr.responseType = "json";
+      xhr.setRequestHeader("Authorization", `Bearer ${directUploadToken}`);
+      xhr.setRequestHeader(
+        "Content-Type",
+        file.type || (kind === "video" ? "video/webm" : "image/webp"),
+      );
+
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable || event.total <= 0) {
+          return;
+        }
+
+        const percent = Math.min(
+          100,
+          Math.max(1, Math.round((event.loaded / event.total) * 100)),
+        );
+        setUploadProgressPercent(percent);
+
+        const elapsedSeconds = (Date.now() - startedAt) / 1000;
+        const bytesPerSecond =
+          elapsedSeconds > 0 ? event.loaded / elapsedSeconds : 0;
+        if (bytesPerSecond > 0) {
+          const remainingBytes = Math.max(0, event.total - event.loaded);
+          setUploadEtaSeconds(remainingBytes / bytesPerSecond);
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error("Network error while uploading asset."));
+      };
+
+      xhr.onabort = () => {
+        reject(new Error("Upload was aborted."));
+      };
+
+      xhr.onload = () => {
+        const isOk = xhr.status >= 200 && xhr.status < 300;
+        if (!isOk) {
+          const responseText =
+            typeof xhr.responseText === "string" ? xhr.responseText : "";
+          reject(
+            new Error(
+              `Upload failed (${xhr.status}). ${responseText || "No response body."}`,
+            ),
+          );
+          return;
+        }
+
+        const payload =
+          xhr.response && typeof xhr.response === "object"
+            ? xhr.response
+            : typeof xhr.responseText === "string" && xhr.responseText
+              ? JSON.parse(xhr.responseText)
+              : null;
+
+        const documentValue =
+          payload && typeof payload === "object" && "document" in payload
+            ? (payload.document as UploadAssetResult)
+            : (payload as UploadAssetResult | null);
+
+        if (!documentValue?._id) {
+          reject(new Error("Upload succeeded but asset id is missing."));
+          return;
+        }
+
+        resolve(documentValue);
+      };
+
+      xhr.send(file);
+    });
+  }
+
   async function publishCurrent() {
     if (!capturedMedia) return;
 
@@ -411,36 +530,22 @@ export function GuestBooth({
     }
 
     setIsPublishing(true);
+    setPublishStage("uploading");
+    setUploadProgressPercent(0);
+    setUploadEtaSeconds(null);
     setPublishError(null);
+    setPublishSuccess(null);
 
     try {
-      if (!directUploadClient) {
-        throw new Error(
-          "Missing NEXT_PUBLIC_SANITY_UPLOAD_TOKEN. Add it to frontend/app/.env.local and restart Next.js.",
-        );
-      }
-
       let uploadedAsset;
 
       try {
-        uploadedAsset =
-          capturedMedia.kind === "video"
-            ? await directUploadClient.assets.upload(
-                "file",
-                capturedMedia.file,
-                {
-                  filename: capturedMedia.file.name,
-                  contentType: capturedMedia.file.type || "video/webm",
-                },
-              )
-            : await directUploadClient.assets.upload(
-                "image",
-                capturedMedia.file,
-                {
-                  filename: capturedMedia.file.name,
-                  contentType: capturedMedia.file.type || "image/webp",
-                },
-              );
+        uploadedAsset = await uploadAssetWithProgress(
+          capturedMedia.file,
+          capturedMedia.kind,
+        );
+        setUploadProgressPercent(100);
+        setUploadEtaSeconds(0);
       } catch (uploadError) {
         throw new Error(
           formatDirectUploadError(
@@ -450,6 +555,8 @@ export function GuestBooth({
           ),
         );
       }
+
+      setPublishStage("publishing");
 
       const response = await fetch("/api/guest-submissions", {
         method: "POST",
@@ -535,6 +642,11 @@ export function GuestBooth({
       void loadRecentPublished(false);
 
       setCaptureLabel("Published to wedding gallery queue");
+      setPublishSuccess(
+        capturedMedia.kind === "video"
+          ? "Video je uspjesno objavljen."
+          : "Slika je uspjesno objavljena.",
+      );
       setCapturedMedia((current) => {
         if (current?.previewUrl) URL.revokeObjectURL(current.previewUrl);
         return null;
@@ -548,7 +660,9 @@ export function GuestBooth({
       );
       setCaptureLabel("Publish failed");
     } finally {
+      setPublishStage("idle");
       setIsPublishing(false);
+      setUploadEtaSeconds(null);
     }
   }
 
@@ -885,9 +999,31 @@ export function GuestBooth({
           <div className="flex min-w-[280px] flex-col items-center gap-3 rounded-3xl border border-white/30 bg-white/88 px-8 py-6 text-center shadow-2xl">
             <span className="loading-spinner h-9 w-9 rounded-full border-4 border-rose-200 border-t-rose-500" />
             <p className="font-semibold text-stone-800">
-              Objavljujem sadržaj, samo trenutak...
+              {publishStage === "uploading"
+                ? "Uploadam fajl na server..."
+                : "Zavrsavam objavu..."}
             </p>
+            {publishStage === "uploading" && (
+              <>
+                <div className="h-2 w-56 overflow-hidden rounded-full bg-stone-200">
+                  <div
+                    className="h-full rounded-full bg-rose-500 transition-all duration-300"
+                    style={{ width: `${uploadProgressPercent}%` }}
+                  />
+                </div>
+                <p className="text-xs text-stone-600">
+                  {uploadProgressPercent}% · Preostalo ~
+                  {formatEta(uploadEtaSeconds)}
+                </p>
+              </>
+            )}
           </div>
+        </div>
+      )}
+
+      {publishSuccess && !showIntroOverlay && (
+        <div className="fixed right-4 top-4 z-[75] max-w-sm rounded-2xl border border-emerald-300/40 bg-emerald-500/15 px-4 py-3 text-sm text-emerald-100 shadow-xl backdrop-blur-md sm:right-6 sm:top-6">
+          {publishSuccess}
         </div>
       )}
 
