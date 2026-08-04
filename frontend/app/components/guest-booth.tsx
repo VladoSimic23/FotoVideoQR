@@ -25,7 +25,7 @@ const MAX_REQUEST_UPLOAD_BYTES = 40_000_000;
 const IMAGE_TARGET_MAX_WIDTH = 2400;
 const IMAGE_TARGET_QUALITY = 0.9;
 const IMAGE_MIN_QUALITY = 0.78;
-const MAX_VIDEO_SECONDS_HARD_LIMIT = 15;
+const MAX_VIDEO_SECONDS_HARD_LIMIT = 10;
 
 const projectId = process.env.NEXT_PUBLIC_SANITY_PROJECT_ID ?? "33lo3roy";
 const dataset = process.env.NEXT_PUBLIC_SANITY_DATASET ?? "production";
@@ -36,6 +36,8 @@ type UploadAssetResult = {
   _id: string;
   url?: string;
 };
+
+type RecordingStopReason = "manual" | "max-limit" | "dismissed";
 
 export function GuestBooth({
   guestPath,
@@ -54,6 +56,12 @@ export function GuestBooth({
 }) {
   const nativePhotoInputRef = useRef<HTMLInputElement | null>(null);
   const nativeVideoInputRef = useRef<HTMLInputElement | null>(null);
+  const recorderPreviewRef = useRef<HTMLVideoElement | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaChunksRef = useRef<BlobPart[]>([]);
+  const recordingStartedAtRef = useRef<number | null>(null);
+  const recordingStopReasonRef = useRef<RecordingStopReason>("manual");
 
   const [cameraFacing] = useState<CameraFacing>("user");
   const [captureLabel, setCaptureLabel] = useState("Ready to capture");
@@ -86,6 +94,11 @@ export function GuestBooth({
   const [viewerVideoFailedId, setViewerVideoFailedId] = useState<string | null>(
     null,
   );
+  const [isRecorderOpen, setIsRecorderOpen] = useState(false);
+  const [isRecorderStarting, setIsRecorderStarting] = useState(false);
+  const [isRecordingVideo, setIsRecordingVideo] = useState(false);
+  const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0);
+  const [recorderError, setRecorderError] = useState<string | null>(null);
   const touchStartXRef = useRef<number | null>(null);
 
   const filteredPublishedItems =
@@ -100,6 +113,40 @@ export function GuestBooth({
   ).length;
   const effectiveMaxVideoSeconds = MAX_VIDEO_SECONDS_HARD_LIMIT;
   const coupleInitials = getCoupleInitials(coupleNames);
+
+  const stopRecordingStream = useCallback((stream?: MediaStream | null) => {
+    const activeStream = stream ?? recordingStreamRef.current;
+
+    activeStream?.getTracks().forEach((track) => track.stop());
+
+    if (recordingStreamRef.current === activeStream) {
+      recordingStreamRef.current = null;
+    }
+
+    if (recorderPreviewRef.current) {
+      recorderPreviewRef.current.srcObject = null;
+    }
+  }, []);
+
+  function getSupportedRecorderMimeType() {
+    if (typeof MediaRecorder === "undefined") {
+      return "";
+    }
+
+    const supportedTypes = [
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp8,opus",
+      "video/webm;codecs=h264,opus",
+      "video/webm",
+      "video/mp4",
+    ];
+
+    return (
+      supportedTypes.find((mimeType) =>
+        MediaRecorder.isTypeSupported(mimeType),
+      ) ?? ""
+    );
+  }
 
   function getTooLargeUploadMessage(kind: "photo" | "video") {
     if (kind === "video") {
@@ -378,6 +425,115 @@ export function GuestBooth({
       }
     };
   }, [capturedMedia]);
+
+  useEffect(() => {
+    if (!isRecorderOpen) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function startRecorderStream() {
+      setIsRecorderStarting(true);
+      setRecorderError(null);
+      setRecordingElapsedSeconds(0);
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: {
+            facingMode: { ideal: cameraFacing },
+          },
+        });
+
+        if (cancelled) {
+          stopRecordingStream(stream);
+          return;
+        }
+
+        recordingStreamRef.current = stream;
+
+        if (recorderPreviewRef.current) {
+          recorderPreviewRef.current.srcObject = stream;
+          void recorderPreviewRef.current.play().catch(() => undefined);
+        }
+
+        setCaptureLabel("Video kamera je spremna.");
+      } catch {
+        if (!cancelled) {
+          setRecorderError(
+            "Kamera ili mikrofon nisu dostupni. Provjeri dozvole preglednika.",
+          );
+          setCaptureLabel("Video kamera nije dostupna.");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsRecorderStarting(false);
+        }
+      }
+    }
+
+    void startRecorderStream();
+
+    return () => {
+      cancelled = true;
+      setIsRecordingVideo(false);
+      setRecordingElapsedSeconds(0);
+
+      if (mediaRecorderRef.current?.state === "recording") {
+        recordingStopReasonRef.current = "dismissed";
+        mediaRecorderRef.current.stop();
+        return;
+      }
+
+      stopRecordingStream();
+    };
+  }, [cameraFacing, isRecorderOpen, stopRecordingStream]);
+
+  useEffect(() => {
+    if (!isRecordingVideo) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      const startedAt = recordingStartedAtRef.current;
+
+      if (!startedAt) {
+        return;
+      }
+
+      const elapsedSeconds = (performance.now() - startedAt) / 1000;
+      const clampedSeconds = Number(
+        Math.min(effectiveMaxVideoSeconds, elapsedSeconds).toFixed(1),
+      );
+
+      setRecordingElapsedSeconds(clampedSeconds);
+
+      if (elapsedSeconds >= effectiveMaxVideoSeconds) {
+        const recorder = mediaRecorderRef.current;
+
+        if (recorder?.state === "recording") {
+          recordingStopReasonRef.current = "max-limit";
+          recorder.stop();
+        }
+      }
+    }, 100);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [effectiveMaxVideoSeconds, isRecordingVideo]);
+
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current?.state === "recording") {
+        recordingStopReasonRef.current = "dismissed";
+        mediaRecorderRef.current.stop();
+      }
+
+      stopRecordingStream();
+    };
+  }, [stopRecordingStream]);
 
   useEffect(() => {
     const startExitTimeout = window.setTimeout(() => {
@@ -772,6 +928,181 @@ export function GuestBooth({
     openNativePicker(nativeVideoInputRef.current);
   }
 
+  function triggerVideoCapture() {
+    if (
+      typeof navigator === "undefined" ||
+      !navigator.mediaDevices?.getUserMedia ||
+      typeof MediaRecorder === "undefined"
+    ) {
+      triggerNativeVideoCapture();
+      return;
+    }
+
+    setPublishError(null);
+    setRecorderError(null);
+    setRecordingElapsedSeconds(0);
+    setIsRecorderOpen(true);
+  }
+
+  function stopVideoRecording(reason: RecordingStopReason = "manual") {
+    const recorder = mediaRecorderRef.current;
+
+    if (!recorder || recorder.state !== "recording") {
+      return;
+    }
+
+    recordingStopReasonRef.current = reason;
+    recorder.stop();
+    setIsRecordingVideo(false);
+  }
+
+  function closeRecorder() {
+    if (mediaRecorderRef.current?.state === "recording") {
+      stopVideoRecording("dismissed");
+      return;
+    }
+
+    stopRecordingStream();
+    setIsRecorderOpen(false);
+    setIsRecordingVideo(false);
+    setRecordingElapsedSeconds(0);
+  }
+
+  function startVideoRecording() {
+    const stream = recordingStreamRef.current;
+
+    if (!stream) {
+      setRecorderError("Kamera jos nije spremna. Pokusaj ponovno za trenutak.");
+      return;
+    }
+
+    const mimeType = getSupportedRecorderMimeType();
+
+    try {
+      mediaChunksRef.current = [];
+      recordingStopReasonRef.current = "manual";
+
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      mediaRecorderRef.current = recorder;
+
+      recorder.onstart = () => {
+        recordingStartedAtRef.current = performance.now();
+      };
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          mediaChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onerror = () => {
+        setRecorderError("Video snimanje nije uspjelo. Pokusaj ponovno.");
+        setIsRecordingVideo(false);
+      };
+
+      recorder.onstop = async () => {
+        const stopReason = recordingStopReasonRef.current;
+        const recordedChunks = mediaChunksRef.current;
+        const elapsedSeconds = recordingStartedAtRef.current
+          ? Number(
+              (
+                (performance.now() - recordingStartedAtRef.current) /
+                1000
+              ).toFixed(1),
+            )
+          : undefined;
+
+        mediaRecorderRef.current = null;
+        mediaChunksRef.current = [];
+        recordingStartedAtRef.current = null;
+        setIsRecordingVideo(false);
+        setRecordingElapsedSeconds(0);
+        stopRecordingStream();
+
+        if (stopReason === "dismissed") {
+          setIsRecorderOpen(false);
+          return;
+        }
+
+        if (recordedChunks.length === 0) {
+          setRecorderError("Video nije snimljen. Pokusaj ponovno.");
+          setIsRecorderOpen(false);
+          return;
+        }
+
+        setIsPreparingVideo(true);
+
+        try {
+          const blobType = recorder.mimeType || mimeType || "video/webm";
+          const extension = blobType.includes("mp4") ? "mp4" : "webm";
+          const blob = new Blob(recordedChunks, { type: blobType });
+
+          if (!blob.size) {
+            throw new Error("Video nije snimljen. Pokusaj ponovno.");
+          }
+
+          const file = new File(
+            [blob],
+            `guest-video-${Date.now()}.${extension}`,
+            {
+              type: blobType,
+              lastModified: Date.now(),
+            },
+          );
+          const durationSeconds =
+            (await getVideoDurationFromFile(file)) ?? elapsedSeconds;
+          const previewUrl = URL.createObjectURL(file);
+          const maxSizeForKind = getUploadSizeLimitBytes("video");
+
+          setCapturedMedia((current) => {
+            if (current?.previewUrl) {
+              URL.revokeObjectURL(current.previewUrl);
+            }
+
+            return {
+              kind: "video",
+              file,
+              previewUrl,
+              durationSeconds,
+            };
+          });
+
+          setIsPreviewLoading(true);
+          setPublishError(
+            file.size > maxSizeForKind
+              ? getTooLargeUploadMessage("video")
+              : null,
+          );
+          setCaptureLabel(
+            stopReason === "max-limit"
+              ? `Video je automatski zaustavljen nakon ${effectiveMaxVideoSeconds} sekundi.`
+              : "Video preview ready",
+          );
+          setRecorderError(null);
+          setIsRecorderOpen(false);
+        } catch (error) {
+          setRecorderError(
+            error instanceof Error
+              ? error.message
+              : "Video nije snimljen. Pokusaj ponovno.",
+          );
+        } finally {
+          setIsPreparingVideo(false);
+        }
+      };
+
+      recorder.start(250);
+      setRecorderError(null);
+      setIsRecordingVideo(true);
+      setCaptureLabel("Video recording started");
+    } catch {
+      setRecorderError("Video snimanje nije podrzano na ovom uredaju.");
+    }
+  }
+
   async function getVideoDurationFromFile(file: File) {
     const url = URL.createObjectURL(file);
 
@@ -1010,8 +1341,8 @@ export function GuestBooth({
             <span className="loading-spinner h-9 w-9 rounded-full border-4 border-rose-200 border-t-rose-500" />
             <p className="font-semibold text-stone-800">
               {publishStage === "uploading"
-                ? "Uploadam fajl na server..."
-                : "Zavrsavam objavu..."}
+                ? "Prijenos datoteke u tijeku..."
+                : "Završavam objavu..."}
             </p>
             {publishStage === "uploading" && (
               <>
@@ -1034,6 +1365,74 @@ export function GuestBooth({
       {publishSuccess && !showIntroOverlay && (
         <div className="fixed right-4 top-4 z-[75] max-w-sm rounded-2xl border border-emerald-300/40 bg-emerald-500/15 px-4 py-3 text-sm text-emerald-100 shadow-xl backdrop-blur-md sm:right-6 sm:top-6">
           {publishSuccess}
+        </div>
+      )}
+
+      {isRecorderOpen && !showIntroOverlay && (
+        <div className="fixed inset-0 z-[74] flex items-center justify-center bg-black/75 px-4 py-6 backdrop-blur-md sm:px-6">
+          <div className="w-full max-w-md rounded-[2rem] border border-white/15 bg-black/70 p-4 shadow-2xl shadow-black/40 sm:p-5">
+            <div className="relative overflow-hidden rounded-[1.5rem] border border-white/15 bg-black">
+              <video
+                ref={recorderPreviewRef}
+                autoPlay
+                playsInline
+                muted
+                className="aspect-[3/4] w-full bg-black object-cover"
+              />
+
+              <div className="absolute left-3 top-3 rounded-full border border-white/20 bg-black/55 px-3 py-1 text-xs font-semibold tracking-[0.14em] text-white/90">
+                {formatDuration(recordingElapsedSeconds)} /{" "}
+                {formatDuration(effectiveMaxVideoSeconds)}
+              </div>
+
+              {isRecordingVideo && (
+                <div className="absolute right-3 top-3 flex items-center gap-2 rounded-full border border-rose-300/30 bg-rose-500/20 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-white">
+                  <span className="h-2.5 w-2.5 rounded-full bg-rose-400" />
+                  Snimam
+                </div>
+              )}
+
+              {isRecorderStarting && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                  <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/20 bg-black/45 px-5 py-4 text-center text-white">
+                    <span className="loading-spinner h-7 w-7 rounded-full border-4 border-rose-200 border-t-rose-500" />
+                    <p className="text-sm font-semibold">Pokrecem kameru...</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 text-center text-sm text-white/80">
+              Video se automatski zaustavlja nakon {effectiveMaxVideoSeconds}{" "}
+              sekundi.
+            </div>
+
+            {recorderError && (
+              <p className="mt-3 text-sm text-rose-300">{recorderError}</p>
+            )}
+
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={closeRecorder}
+                className="flex-1 rounded-full border border-white/20 bg-black/35 px-4 py-3 text-sm font-semibold text-white transition hover:bg-black/55"
+              >
+                Odustani
+              </button>
+              <button
+                type="button"
+                onClick={
+                  isRecordingVideo
+                    ? () => stopVideoRecording("manual")
+                    : startVideoRecording
+                }
+                disabled={isRecorderStarting || Boolean(recorderError)}
+                className="flex-1 rounded-full border border-rose-200 bg-rose-200 px-4 py-3 text-sm font-semibold text-rose-900 transition hover:bg-rose-300 disabled:opacity-50"
+              >
+                {isRecordingVideo ? "Zaustavi" : "Snimi video"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1129,7 +1528,7 @@ export function GuestBooth({
             </button>
             <button
               type="button"
-              onClick={triggerNativeVideoCapture}
+              onClick={triggerVideoCapture}
               className="rounded-full bg-white/15 px-5 py-4 text-sm font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
               disabled={isPublishing || isPreparingVideo}
             >
