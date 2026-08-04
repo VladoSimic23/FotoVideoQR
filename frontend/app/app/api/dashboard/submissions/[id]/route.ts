@@ -107,21 +107,9 @@ export async function PATCH(
         .patch(id)
         .set({ status: "approved", visibleInGallery: true, approvedAt: now })
         .commit();
-    } else if (action === "hide") {
-      await writeClient
-        .patch(id)
-        .set({ status: "hidden", visibleInGallery: false })
-        .commit();
-    } else if (action === "reject") {
-      await writeClient
-        .patch(id)
-        .set({ status: "rejected", visibleInGallery: false })
-        .commit();
-    } else if (action === "markVisible") {
-      await writeClient.patch(id).set({ visibleInGallery: true }).commit();
     } else {
       return NextResponse.json(
-        { ok: false, error: "Unsupported action." },
+        { ok: false, error: "Only 'approve' action is supported." },
         { status: 400 },
       );
     }

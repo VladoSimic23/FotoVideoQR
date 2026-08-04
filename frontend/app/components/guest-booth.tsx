@@ -26,6 +26,7 @@ const IMAGE_TARGET_MAX_WIDTH = 2400;
 const IMAGE_TARGET_QUALITY = 0.9;
 const IMAGE_MIN_QUALITY = 0.78;
 const MAX_VIDEO_SECONDS_HARD_LIMIT = 15;
+const VIDEO_RECORDING_WARNING_SECONDS = 10;
 
 const projectId = process.env.NEXT_PUBLIC_SANITY_PROJECT_ID ?? "33lo3roy";
 const dataset = process.env.NEXT_PUBLIC_SANITY_DATASET ?? "production";
@@ -83,6 +84,7 @@ export function GuestBooth({
   const [showIntroOverlay, setShowIntroOverlay] = useState(true);
   const [introOverlayExiting, setIntroOverlayExiting] = useState(false);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+  const [isVideoWarningOpen, setIsVideoWarningOpen] = useState(false);
   const [viewerVideoFailedId, setViewerVideoFailedId] = useState<string | null>(
     null,
   );
@@ -772,6 +774,15 @@ export function GuestBooth({
     openNativePicker(nativeVideoInputRef.current);
   }
 
+  function triggerNativeVideoCaptureWithWarning() {
+    setIsVideoWarningOpen(true);
+  }
+
+  function confirmVideoWarningAndOpenCamera() {
+    setIsVideoWarningOpen(false);
+    triggerNativeVideoCapture();
+  }
+
   async function getVideoDurationFromFile(file: File) {
     const url = URL.createObjectURL(file);
 
@@ -1037,6 +1048,40 @@ export function GuestBooth({
         </div>
       )}
 
+      {isVideoWarningOpen && !showIntroOverlay && (
+        <div className="fixed inset-0 z-[76] flex items-center justify-center bg-black/65 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-white/20 bg-neutral-900/95 p-6 text-center shadow-2xl shadow-black/40">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-300/90">
+              Upozorenje
+            </p>
+            <h3 className="mt-2 text-2xl font-semibold text-white">
+              Ogranicenje trajanja videa
+            </h3>
+            <p className="mt-3 text-sm leading-6 text-white/80">
+              Video duzi od {VIDEO_RECORDING_WARNING_SECONDS} sekundi nece biti
+              moguce objaviti.
+            </p>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setIsVideoWarningOpen(false)}
+                className="flex-1 rounded-full border border-white/20 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+              >
+                Odustani
+              </button>
+              <button
+                type="button"
+                onClick={confirmVideoWarningAndOpenCamera}
+                className="flex-1 rounded-full border border-rose-200 bg-rose-200 px-4 py-3 text-sm font-semibold text-rose-900 transition hover:bg-rose-300"
+              >
+                Nastavi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style jsx>{`
         .intro-heartbeat {
           animation: intro-heartbeat 1.15s ease-in-out infinite;
@@ -1129,7 +1174,7 @@ export function GuestBooth({
             </button>
             <button
               type="button"
-              onClick={triggerNativeVideoCapture}
+              onClick={triggerNativeVideoCaptureWithWarning}
               className="rounded-full bg-white/15 px-5 py-4 text-sm font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
               disabled={isPublishing || isPreparingVideo}
             >

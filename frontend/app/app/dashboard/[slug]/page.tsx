@@ -31,14 +31,9 @@ export default async function WeddingDashboardPage({
           title: "Wedding dashboard",
           coupleNames: "Mladenci",
           dashboardSlug: slug,
-          guestUploadEnabled: true,
-          autoPublishApproved: false,
-          moderationMode: "review",
-          maxVideoSeconds: 10,
         }
       }
       summary={summary}
-      eventId={event?._id}
       dashboardPath={`/dashboard/${dashboardSlug}`}
       guestPath={`/w/${guestSlug}`}
     />
